@@ -8,7 +8,7 @@ from src.data.clients.auth_client import get_full_providers
 from src.data.models.postgres.appointment import Appointment
 from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
-from src.data.repositories.appointments import get_appointments, get_instance_by_id
+from src.data.repositories.appointments import get_appointment_by_id, get_appointments, get_instance_by_id
 from src.data.repositories.generic_crud import insert_instance, update_instance
 from src.schemas.appointments import (
     AppointmentResponse,
@@ -16,6 +16,85 @@ from src.schemas.appointments import (
     ProviderProfileResponse,
     ProviderResponse,
 )
+from fastapi_mail import FastMail, MessageSchema
+from src.control.voice_assistance.config import conf
+
+
+async def send_booking_confirmation_email(to_email: str, body: str) -> None:
+    message = MessageSchema(
+        subject="Your Appointment is Confirmed",
+        recipients=[to_email],
+        body=body,
+        subtype="plain",
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+
+async def send_cancel_cancellation_email(to_email: str, body: str) -> None:
+    message = MessageSchema(
+        subject="Your Appointment has been Cancelled",
+        recipients=[to_email],
+        body=body,
+        subtype="plain",
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+
+def build_cancellation_email_body(patient_name: str,appointment_type : str, date: str, start_time: str, end_time: str, reason:str) -> str:
+
+    lines = [
+        f"Dear {patient_name},",
+        "",
+        "Your appointment has been successfully cancelled.",
+        "",
+        f"  Appointment Type : {appointment_type}",
+        f"  Date             : {date}",
+        f"  Time             : {start_time} to {end_time}",
+    ]
+
+    if reason and reason != "Not specified":
+        lines.append(f"  Reason           : {reason}")
+
+    lines += [
+        "",
+        "If this was a mistake or you wish to rebook, please contact us.",
+        "",
+        "Best regards,",
+        "The Appointments Team",
+    ]
+
+    return "\n".join(lines)
+
+
+
+def build_booking_email_body(doctor_name : str,slot_display : str,reason : str,instructions : str,patient_name : str) -> str:
+
+    lines = [
+        f"Dear {patient_name},",
+        "",
+        "Your appointment has been successfully booked.",
+        "",
+        f"  Doctor  : {doctor_name}",
+        f"  Slot    : {slot_display}",
+    ]
+
+    if reason:
+        lines.append(f"  Reason  : {reason}")
+    if instructions:
+        lines.append(f"  Instructions : {instructions}")
+
+    lines += [
+        "",
+        "Please arrive 10 minutes before your scheduled time.",
+        "If you need to cancel, contact us as soon as possible.",
+        "",
+        "Best regards,",
+        "The Appointments Team",
+    ]
+
+    return "\n".join(lines)
 
 
 async def insert_appointment(db: AsyncSession, appointment_data):
@@ -88,6 +167,28 @@ async def cancel_appointment(
         raise Exception(f"Failed to cancel appointment {e}")
 
 
+async def get_appointment_by_id_service(
+    db: AsyncSession,
+    appointment_id: int,
+) -> dict | None:
+
+    appt = await get_appointment_by_id(db=db, appointment_id=appointment_id)
+
+    if not appt:
+        return None
+
+    return {
+        "patient_name": appt.patient_name,
+        "appointment_type": (
+            appt.appointment_type.name if appt.appointment_type else None
+        ),
+        "date": str(appt.scheduled_date),
+        "start_time": str(appt.scheduled_start_time),
+        "end_time": str(appt.scheduled_end_time),
+        "reason": appt.reason_for_visit,
+        "user_id":appt.user_id
+    }
+
 async def get_all_appointments_service(
     db: AsyncSession,
     token: str,
@@ -113,10 +214,8 @@ async def get_all_appointments_service(
         is_active=is_active,
     )
 
-    # Fetch providers from Auth Service
     providers = await get_full_providers(token)
 
-    # Convert list → fast lookup dictionary
     provider_map = {p["id"]: p for p in providers}
 
     result = []

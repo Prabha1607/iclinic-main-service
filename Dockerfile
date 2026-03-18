@@ -5,7 +5,6 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# force HTTPS repo + install curl
 RUN printf "deb https://deb.debian.org/debian trixie main\n\
 deb https://deb.debian.org/debian trixie-updates main\n\
 deb https://deb.debian.org/debian-security trixie-security main\n" > /etc/apt/sources.list \

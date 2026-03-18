@@ -15,7 +15,6 @@ from src.control.voice_assistance.session_store import (
 )
 from src.control.voice_assistance.utils import fresh_state, make_gather, say
 from src.core.services.appointment_types import get_appointment_types
-from src.data.clients.auth_client import get_user
 
 logger = logging.getLogger(__name__)
 
