@@ -1,4 +1,3 @@
-from src.control.voice_assistance.models import ainvoke_llm
 from src.control.voice_assistance.prompts.doctor_selection_node_prompt import (
     DOCTOR_CONVERSATION_PROMPT,
     DOCTOR_INTENT_VERIFIER_PROMPT,
@@ -102,6 +101,9 @@ async def doctor_selection_node(state: dict) -> dict:
     history: list[dict] = list(state.get("doctor_selection_history") or [])
     intent: str = state.get("mapping_intent") or "general checkup"
 
+    if user_text:
+        history.append({"role": "user", "content": user_text})
+
     try:
         appointment_type_id = state.get("mapping_appointment_type_id") or -1
         print("appointment_type_id---------------", appointment_type_id)
@@ -112,15 +114,19 @@ async def doctor_selection_node(state: dict) -> dict:
 
     except Exception as e:
         print("[doctor_selection_node] fetch failed:", e)
+        history.append({"role": "assistant", "content": NO_DOCTORS_RESPONSE})
         return {
             **state,
+            "doctor_selection_history": history,
             "doctor_selection_completed": True,
             "speech_ai_text": NO_DOCTORS_RESPONSE,
         }
 
     if not doctors:
+        history.append({"role": "assistant", "content": NO_DOCTORS_RESPONSE})
         return {
             **state,
+            "doctor_selection_history": history,
             "doctor_selection_completed": True,
             "speech_ai_text": NO_DOCTORS_RESPONSE,
         }
@@ -132,35 +138,15 @@ async def doctor_selection_node(state: dict) -> dict:
     else:
         available_doctors = doctors
 
-    if user_text:
-        history.append({"role": "user", "content": user_text})
-
+    # ── Already confirmed a doctor ──────────────────────────────────────────
     if state.get("doctor_confirmed_id") and not user_change_request:
-        if user_text:
-            messages = await ainvoke_llm(
-                [
-                    {"role": "system", "content": DOCTOR_INTENT_VERIFIER_PROMPT},
-                    {
-                        "role": "user",
-                        "content": f"Doctors:\n{_doctors_context(doctors)}\n\nPatient said: {user_text}",
-                    },
-                ]
-            )
-            response = await invokeLargeLLM_json(messages)
-
-            user_intent = response.get("intent", "unknown")
-
-            print("[user_intent]:", user_intent)
-
-            if user_intent in ("asking_info", "change_request", "unclear"):
-                ai_text = await run_doctor_llm(
-                    mode="handle_question",
-                    doctors=doctors,
-                    history=history,
-                    intent=intent,
-                )
-
-        return {**state, "doctor_selection_completed": True}
+        print("[doctor_selection_node] doctor already confirmed — skipping to completed")
+        return {
+            **state,
+            "doctor_selection_history": history,
+            "doctor_selection_completed": True,
+            "doctor_selection_pending": False,
+        }
 
     if len(available_doctors) == 1:
         doctor = available_doctors[0]
@@ -197,8 +183,8 @@ async def doctor_selection_node(state: dict) -> dict:
         }
 
     if user_text and state.get("doctor_selection_pending"):
-        messages = await ainvoke_llm(
-            [
+        response = await invokeLargeLLM_json(
+            messages=[
                 {"role": "system", "content": DOCTOR_INTENT_VERIFIER_PROMPT},
                 {
                     "role": "user",
@@ -206,10 +192,8 @@ async def doctor_selection_node(state: dict) -> dict:
                 },
             ]
         )
-        response = await invokeLargeLLM_json(messages)
 
         user_intent = response.get("intent", "unknown")
-
         print("[user_intent]:", user_intent)
 
         if user_intent == "asking_info":
@@ -227,7 +211,7 @@ async def doctor_selection_node(state: dict) -> dict:
                 "speech_ai_text": ai_text,
             }
 
-        if user_intent == "selecting":
+        if user_intent in ("selecting", "confirming"):
             doctor_id, doctor_name = await _verify_selection(
                 user_text, available_doctors
             )
@@ -251,7 +235,7 @@ async def doctor_selection_node(state: dict) -> dict:
 
     ai_text = await run_doctor_llm(
         mode="present_options",
-        doctors=doctors,
+        doctors=available_doctors,
         history=history,
         intent=intent,
     )
@@ -264,3 +248,4 @@ async def doctor_selection_node(state: dict) -> dict:
         "doctor_selection_history": history,
         "speech_ai_text": ai_text,
     }
+

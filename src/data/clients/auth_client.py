@@ -1,5 +1,4 @@
 import httpx
-
 from src.config.settings import settings
 
 AUTH_SERVICE_URL = settings.AUTH_SERVICE_URL + "/api/v1"
@@ -17,12 +16,11 @@ async def get_full_providers(token: str, appointment_type_id: int | None = None)
             headers={"Authorization": f"Bearer {token}"},
             timeout=10.0,
         )
-
         response.raise_for_status()
         return response.json()
 
 
-async def get_user(identifier: str):
+async def get_user_by_identifier(identifier: str):
 
     try:
         async with httpx.AsyncClient() as client:
@@ -37,3 +35,24 @@ async def get_user(identifier: str):
             return resp.json()
     except httpx.RequestError:
         raise Exception("Auth service unavailable")
+    
+async def fetch_user_by_id(token: str, user_id: int):
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{AUTH_SERVICE_URL}/users/{user_id}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0
+            )
+
+            if resp.status_code == 404:
+                return None  
+
+            resp.raise_for_status()  
+            return resp.json()
+
+    except httpx.RequestError as e:
+        raise Exception(f"Auth service unavailable: {e}")
+    
+
+    

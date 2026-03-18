@@ -9,12 +9,12 @@ from src.config.settings import settings
 from src.control.voice_assistance.graph import build_call_graph, build_response_graph
 from src.control.voice_assistance.session_store import (
     delete_session,
+    ensure_table,
     get_session,
     set_session,
 )
 from src.control.voice_assistance.utils import fresh_state, make_gather, say
 from src.core.services.appointment_types import get_appointment_types
-from src.data.clients.auth_client import get_user
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,22 @@ NO_SPEECH_TEXT = "Could you please repeat that?"
 RETRY_TEXT = "Sorry, I did not catch that. Please go ahead and speak."
 TIMEOUT_TEXT = "I still could not hear you. Thank you for calling. Goodbye."
 
+_startup_done = False
+
+
+async def _ensure_startup():
+    global _startup_done
+    if not _startup_done:
+        await ensure_table()
+        _startup_done = True
+
 
 def _build_appointment_types(appointment_types: list) -> dict:
     return {at.id: [at.name, at.description] for at in appointment_types}
 
 
 def _is_call_complete(result: dict) -> bool:
+    
     identity_confirmation_completed = result.get(
         "identity_confirmation_completed", False
     )
@@ -80,13 +90,9 @@ async def make_call(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
+    await _ensure_startup()
+
     try:
-        identifier = current_user.get("email")
-        user = await get_user(identifier=identifier)
-
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
         appointment_types = await get_appointment_types(db)
         if not appointment_types:
             raise HTTPException(status_code=404, detail="appointment_types not found")
@@ -96,6 +102,7 @@ async def make_call(
     except Exception as e:
         logger.error("Failed to fetch required data", extra={"error": str(e)})
         raise HTTPException(status_code=500, detail="Internal error")
+
     print("appointment types : ", _build_appointment_types(appointment_types))
 
     credential = request.headers.get("Authorization")
@@ -110,7 +117,7 @@ async def make_call(
 
     initial_state = fresh_state(
         call_to_number=to_number,
-        identity_patient_id=user["id"],
+        identity_patient_id=current_user.get("id"),
         token=token,
         appointment_types=_build_appointment_types(appointment_types),
         identity_user_name=current_user.get("name"),
@@ -141,7 +148,7 @@ async def make_call(
             "call_to_number": to_number,
             "call_sid": call_sid,
         }
-        set_session(call_sid, session_state)
+        await set_session(call_sid, session_state)
     except Exception as e:
         logger.error(
             "Failed to initialize session",
@@ -157,6 +164,8 @@ async def make_call(
 
 @router.post("/voice-response")
 async def voice_response(request: Request):
+    await _ensure_startup()
+
     try:
         form = await request.form()
         call_sid = form.get("CallSid", "unknown")
@@ -170,7 +179,7 @@ async def voice_response(request: Request):
         )
 
     try:
-        state = get_session(call_sid) or fresh_state(
+        state = await get_session(call_sid) or fresh_state(
             call_to_number=form.get("To"), call_sid=call_sid
         )
         state["speech_user_text"] = speech.strip() if speech else None
@@ -178,12 +187,14 @@ async def voice_response(request: Request):
         logger.error(
             "Failed to load session", extra={"call_sid": call_sid, "error": str(e)}
         )
+
         return Response(
             content=_build_twiml(FALLBACK_TEXT, False, True),
             media_type="application/xml",
         )
 
     try:
+
         result = await response_graph.ainvoke(state)
 
     except Exception as e:
@@ -201,9 +212,9 @@ async def voice_response(request: Request):
 
     try:
         if call_complete:
-            delete_session(call_sid)
+            await delete_session(call_sid)
         else:
-            set_session(call_sid, result)
+            await set_session(call_sid, result)
     except Exception:
         pass
 
@@ -211,3 +222,4 @@ async def voice_response(request: Request):
         content=_build_twiml(ai_text, emergency, call_complete),
         media_type="application/xml",
     )
+

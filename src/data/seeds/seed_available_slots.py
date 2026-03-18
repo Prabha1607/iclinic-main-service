@@ -1,5 +1,4 @@
 from sqlalchemy import text
-
 from src.data.clients.postgres_client import AsyncSessionLocal
 
 
@@ -122,25 +121,3 @@ async def seed_available_slots():
         await session.commit()
 
 
-# await session.execute(
-# text("""
-# INSERT INTO available_slots
-# (provider_id, availability_date, start_time, end_time, notes)
-
-# SELECT
-#     d.provider_id,
-#     day::date AS availability_date,
-#     time_slot AS start_time,
-#     time_slot + interval '30 minutes' AS end_time,
-#     'Auto slot' AS notes
-# FROM
-#     generate_series('2026-03-13'::date, '2026-03-20'::date, interval '1 day') AS day
-# CROSS JOIN
-#     (VALUES (1),(2),(3)) AS d(provider_id)
-# CROSS JOIN
-#     generate_series('09:00'::time, '18:30'::time, interval '30 minutes') AS time_slot
-# LIMIT 480
-
-# ON CONFLICT (provider_id, availability_date, start_time, end_time) DO NOTHING;
-# """)
-# )

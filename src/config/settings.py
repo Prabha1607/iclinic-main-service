@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
     POSTGRES_HOST: str
     POSTGRES_PORT: str
-
+    DATABASE_URL : str
+    
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     REFRESH_TOKEN_EXPIRE_DAYS: int
     ALGORITHM: str
@@ -44,8 +45,7 @@ class Settings(BaseSettings):
     EMERGENCY_FORWARD_NUMBER: str
     TWILIO_VERIFY_SERVICE_SID: str
 
-    # URL of the auth-service (used by main-service to proxy user lookups)
-    AUTH_SERVICE_URL: str = "http://localhost:8001"
+    AUTH_SERVICE_URL: str 
 
     @property
     def groq_keys_list(self) -> list[str]:

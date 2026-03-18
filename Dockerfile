@@ -5,7 +5,6 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# force HTTPS repo + install curl
 RUN printf "deb https://deb.debian.org/debian trixie main\n\
 deb https://deb.debian.org/debian trixie-updates main\n\
 deb https://deb.debian.org/debian-security trixie-security main\n" > /etc/apt/sources.list \
@@ -22,6 +21,6 @@ RUN uv pip install --system .
 
 COPY . .
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "src.api.rest.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn src.api.rest.app:app --host 0.0.0.0 --port ${PORT:-8080}"]

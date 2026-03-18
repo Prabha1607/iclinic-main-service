@@ -21,8 +21,8 @@ from src.data.seeds.seed_available_slots import seed_available_slots
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    await init_db()
-    await seed_available_slots()
+    # await init_db()
+    # await seed_available_slots()
     yield
 
 

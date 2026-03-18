@@ -1,12 +1,25 @@
 from datetime import date
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
 from src.data.models.postgres.appointment import Appointment
 from src.data.models.postgres.ENUM import AppointmentStatus
 
+async def get_appointment_by_id(
+    db: AsyncSession,
+    appointment_id: int,
+):
+    stmt = (
+        select(Appointment)
+        .options(
+            selectinload(Appointment.appointment_type),
+            selectinload(Appointment.availability_slot),
+        )
+        .where(Appointment.id == appointment_id)
+    )
+
+    result = await db.execute(stmt)
+    return result.scalars().first()
 
 async def get_appointments(
     db: AsyncSession,

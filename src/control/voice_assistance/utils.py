@@ -180,17 +180,14 @@ EVENING_END = time(21, 0)
 
 
 def format_time(t: time) -> str:
-    """'9:00 AM', '12:30 PM', etc."""
     return t.strftime("%I:%M %p").lstrip("0")
 
 
 def format_date(d: date) -> str:
-    """'Monday, Jan 06 2025'"""
     return d.strftime("%A, %b %d %Y")
 
 
 def format_date_iso(d: date) -> str:
-    """'Monday, Jan 06 2025 -> 2025-01-06'  (used in LLM date-option lists)"""
     return f"{format_date(d)} -> {d.isoformat()}"
 
 
@@ -205,12 +202,10 @@ def classify_period(t: time) -> str:
 
 
 def slots_for_date(all_slots: list[dict], target: date) -> list[dict]:
-    """Return only slots whose date matches *target*."""
     return [s for s in all_slots if s["date"] == target]
 
 
 def group_slots_by_period(slots: list[dict]) -> dict[str, list[dict]]:
-    """Return {period: [slot, ...]} for every slot in *slots*."""
     periods: dict[str, list[dict]] = {}
     for s in slots:
         periods.setdefault(s["period"], []).append(s)
@@ -218,30 +213,21 @@ def group_slots_by_period(slots: list[dict]) -> dict[str, list[dict]]:
 
 
 def get_available_dates(all_slots: list[dict]) -> list[date]:
-    """Unique sorted dates present in *all_slots*."""
     return sorted({s["date"] for s in all_slots})
 
 
 def build_date_options_text(available_dates: list[date]) -> str:
-    """Multi-line string of date options for LLM prompts."""
     return "\n".join(format_date_iso(d) for d in available_dates)
 
 
 def build_slot_context_text(
     slots: list[dict], *, use_full_display: bool = False
 ) -> str:
-    """Multi-line string of slot details for LLM prompts."""
     display_key = "full_display" if use_full_display else "display"
     return "\n".join(
         f"slot_id={s['id']} start_time={s['start_time']} end_time={s['end_time']} display={s[display_key]}"
         for s in slots
     )
-
-
-# ---------------------------------------------------------------------------
-# Slot filtering
-# ---------------------------------------------------------------------------
-
 
 def _coerce_time(val: time | str | None) -> time | None:
     if val is None:
@@ -260,11 +246,7 @@ def exclude_previously_selected_slot(
     prev_start: str | None,
     prev_end: str | None,
 ) -> list[dict]:
-    """
-    When the user wants to change their slot, remove the slot they already
-    had so it won't be offered again.  Falls back to the original list if
-    filtering would leave nothing.
-    """
+
     if not user_change_request or not prev_start or not prev_end:
         return slots
 
@@ -288,10 +270,7 @@ def exclude_previously_selected_slot(
 def get_nearest_alternate_dates(
     chosen_date: date, available_dates: list[date]
 ) -> list[date]:
-    """
-    Return up to 3 dates nearest to *chosen_date* (1 before + 2 after when
-    possible) from *available_dates*, sorted ascending.
-    """
+    
     before = sorted([d for d in available_dates if d < chosen_date], reverse=True)
     after = sorted([d for d in available_dates if d > chosen_date])
 
