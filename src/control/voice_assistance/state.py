@@ -34,10 +34,13 @@ class VoiceState(TypedDict):
     mapping_emergency: bool | None
     mapping_appointment_type_completed: bool | None
     mapping_appointment_type_id: int | None
+    mapping_history : list[dict[str, str]] | None
+
 
     appointment_types: dict[int, list[str]] | None
     appointments_list: list[dict] | None
 
+    doctor_selection_history : list[dict[str, str]] | None
     doctor_list: list[dict] | None
     doctor_selection_pending: bool | None
     doctor_selection_completed: bool | None

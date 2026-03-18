@@ -24,8 +24,6 @@ from src.control.voice_assistance.utils import (
     update_state,
 )
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
 
 def _normalise(text: str) -> str:
     return text.strip().lower().replace(" ", "_").replace("-", "_")
@@ -63,9 +61,6 @@ def _build_greeting(user_name: str | None) -> str:
 
 def _is_clarify_active(history: list[dict]) -> bool:
     return any(turn.get("role") == "assistant" for turn in history)
-
-
-# ── LLM-backed operations (all use the 4 utility functions) ──────────────────
 
 
 async def _classify_intent(conversation_str: str, appointment_types: dict) -> str:
@@ -203,8 +198,6 @@ def _build_clarify_messages(history: list[dict], uncovered: list[str]) -> list[d
     ]
 
 
-# ── main node ─────────────────────────────────────────────────────────────────
-
 
 async def clarify_node(state: dict) -> dict:
     print("[clarify_node] -----------------------------")
@@ -215,6 +208,7 @@ async def clarify_node(state: dict) -> dict:
         covered: list[str] = list(state.get("clarify_covered_topics") or [])
         user_name: str | None = state.get("identity_user_name")
         appointment_types: dict = state.get("appointment_types") or {}
+        mapping_history: list[dict[str, str]] = list(state.get("mapping_history") or [])
 
         is_first_turn = len(history) == 0
 
@@ -223,8 +217,8 @@ async def clarify_node(state: dict) -> dict:
         if user_text:
             user_text = user_text.strip()
             history.append({"role": "user", "content": user_text})
+            mapping_history.append({"role": "user", "content": user_text})
 
-            # emergency check — only after the agent has spoken at least once
             if _is_clarify_active(history) and await is_emergency(
                 user_text, get_llama=get_llama1, system_prompt=EMERGENCY_SYSTEM_PROMPT
             ):
@@ -235,6 +229,7 @@ async def clarify_node(state: dict) -> dict:
                     clarify_completed=True,
                     clarify_conversation_history=history,
                     clarify_covered_topics=covered,
+                    mapping_history=mapping_history,
                 )
 
             uncovered_optimistic = [t for t in TOPICS if t not in covered]
@@ -274,6 +269,8 @@ async def clarify_node(state: dict) -> dict:
                 f"a {friendly_name} appointment for you now."
             )
 
+            mapping_history.append({"role": "assistant", "content": bridge_text})
+
             return update_state(
                 state,
                 clarify_conversation_history=history,
@@ -284,6 +281,7 @@ async def clarify_node(state: dict) -> dict:
                 mapping_appointment_type_completed=True,
                 booking_reason_for_visit=reason_for_visit,
                 speech_ai_text=bridge_text,
+                mapping_history=mapping_history,
             )
 
         if not full_content:
@@ -300,6 +298,7 @@ async def clarify_node(state: dict) -> dict:
             ai_text = _build_greeting(user_name) + ai_text
 
         history.append({"role": "assistant", "content": ai_text})
+        mapping_history.append({"role": "assistant", "content": ai_text})
 
         return update_state(
             state,
@@ -307,6 +306,7 @@ async def clarify_node(state: dict) -> dict:
             clarify_conversation_history=history,
             clarify_covered_topics=covered,
             clarify_completed=False,
+            mapping_history=mapping_history,
         )
 
     except Exception as exc:
@@ -317,3 +317,5 @@ async def clarify_node(state: dict) -> dict:
             clarify_completed=True,
             speech_error=str(exc),
         )
+    
+

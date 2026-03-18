@@ -24,6 +24,7 @@ from src.control.voice_assistance.utils import (
     get_available_dates,
     get_nearest_alternate_dates,
     group_slots_by_period,
+    invokeLargeLLM_json,
     looks_like_slot_choice,
     slots_for_date,
     update_state,
@@ -549,10 +550,27 @@ async def _handle_ask_slot(
             slot_selection_history=history,
         )
 
-    parsed = await _llm_extract(
-        system=LLM_SLOT_SYSTEM.format(slots_context=build_slot_context_text(filtered)),
-        human=user_text,
-    )
+    slots_context = build_slot_context_text(filtered)
+    slot_prompt = f"""You are a slot picker. Given the available slots and what the patient said, return the best matching slot_id.
+
+Available slots:
+{slots_context}
+
+Patient said: "{user_text}"
+
+Return ONLY JSON like: {{"slot_id": 12}}
+If no slot matches, return: {{"slot_id": null}}"""
+
+    try:
+        parsed = await invokeLargeLLM_json(
+            messages=[
+                {"role": "user", "content": slot_prompt}
+            ]
+        )
+    except Exception as e:
+        print("[_handle_ask_slot] invokeLargeLLM_json error:", e)
+        parsed = {}
+
     slot_id = parsed.get("slot_id")
 
     if not slot_id:
@@ -640,12 +658,27 @@ async def _handle_ask_alternate_slot(
         or raw_slots
     )
 
-    parsed = await _llm_extract(
-        system=LLM_ALTERNATE_SLOT_SYSTEM.format(
-            slots_context=build_slot_context_text(filtered, use_full_display=True)
-        ),
-        human=user_text,
-    )
+    slots_context = build_slot_context_text(filtered, use_full_display=True)
+    slot_prompt = f"""You are a slot picker. Given the available slots and what the patient said, return the best matching slot_id.
+
+Available slots:
+{slots_context}
+
+Patient said: "{user_text}"
+
+Return ONLY JSON like: {{"slot_id": 12}}
+If no slot matches, return: {{"slot_id": null}}"""
+
+    try:
+        parsed = await invokeLargeLLM_json(
+            messages=[
+                {"role": "user", "content": slot_prompt}
+            ]
+        )
+    except Exception as e:
+        print("[_handle_ask_alternate_slot] invokeLargeLLM_json error:", e)
+        parsed = {}
+
     slot_id = parsed.get("slot_id")
 
     if not slot_id:
@@ -688,6 +721,7 @@ async def _handle_ask_alternate_slot(
     return await _resolve_and_confirm_slot(
         {**state, "slot_selection_history": history}, matched
     )
+
 
 async def _handle_selecting(
     state: dict,
