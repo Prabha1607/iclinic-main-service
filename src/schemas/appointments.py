@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.data.models.postgres.ENUM import AppointmentStatus, BookingChannel
 
-
 class AppointmentCreate(BaseModel):
     user_id: int
     provider_id: int
@@ -20,18 +19,18 @@ class AppointmentCreate(BaseModel):
     reason_for_visit: str | None = None
     notes: str | None = None
 
-    booking_channel: BookingChannel | None = None
+    booking_channel: str | None = None 
     instructions: str | None = None
 
     @field_validator("scheduled_end_time")
-    def validate_time_order(self, end_time, values):
-        start_time = values.data.get("scheduled_start_time")
+    @classmethod
+    def validate_time_order(cls, end_time, info):
+        start_time = info.data.get("scheduled_start_time")
         if start_time and end_time <= start_time:
             raise ValueError("End time must be greater than start time")
         return end_time
 
     model_config = {"from_attributes": True}
-
 
 class AppointmentUpdate(BaseModel):
     scheduled_date: date | None = None

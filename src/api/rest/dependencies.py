@@ -13,10 +13,14 @@ async def get_db():
             print("DB ERROR:", e)
             raise
 
-
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
+async def get_current_user(request: Request):
     try:
-        token = request.cookies.get("access_token")
+        credential = request.headers.get("Authorization")
+        if credential:
+            scheme, _, token = credential.partition(" ")
+        else:
+            token = request.cookies.get("access_token")
+
         if not token:
             raise HTTPException(status_code=401, detail="Access token missing")
 
@@ -24,13 +28,16 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
         if payload is None:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-        email = payload.get("email")
-        phone_no = payload.get("phone_number")
-        name = payload.get("name")
-
-        return {"email": email, "phone_number": phone_no, "name": name}
+        return {
+            "id": payload.get("id"),
+            "email": payload.get("email"),
+            "phone_number": payload.get("phone_number"),
+            "name": payload.get("name"),
+            "role_id": payload.get("role_id"),
+        }
 
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=500, detail="Authentication failed")
+

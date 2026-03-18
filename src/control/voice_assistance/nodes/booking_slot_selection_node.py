@@ -1,8 +1,7 @@
 from __future__ import annotations
-
 import json
 from datetime import date, datetime, timedelta, timezone
-
+from datetime import time as time_type
 from src.control.voice_assistance.models import ainvoke_llm, get_llama1
 from src.control.voice_assistance.prompts.slot_selection_node_prompt import (
     LLM_ALTERNATE_DATE_SYSTEM,
@@ -505,7 +504,6 @@ async def _handle_ask_period(
         slot_selection_history=history,
     )
 
-
 async def _handle_ask_slot(
     state: dict, user_text: str, doctor_name: str, all_slots: list[dict]
 ) -> dict:
@@ -602,7 +600,25 @@ async def _handle_ask_slot(
             slot_selection_history=history,
         )
 
-    matched = next((s for s in filtered if s["id"] == int(slot_id)), filtered[0])
+    matched = next((s for s in filtered if s["id"] == int(slot_id)), None)
+
+    if matched is None:
+        slot_options = ", ".join(s["display"] for s in filtered)
+        ai_text = await _speak(
+            history,
+            doctor_name,
+            situation="couldn't identify the exact slot the patient mentioned — list the available slots and ask them to pick again",
+            context=f"Date: {format_date(chosen_date)}, Available slots: {slot_options}",
+        )
+        history.append({"role": "assistant", "content": ai_text})
+        return update_state(
+            state,
+            slot_stage="ask_slot",
+            slot_available_list=filtered,
+            speech_ai_text=ai_text,
+            slot_selection_history=history,
+        )
+
     return await _resolve_and_confirm_slot(
         {**state, "slot_selection_history": history}, matched
     )
@@ -650,11 +666,28 @@ async def _handle_ask_alternate_slot(
             slot_selection_history=history,
         )
 
-    matched = next((s for s in filtered if s["id"] == int(slot_id)), filtered[0])
+    matched = next((s for s in filtered if s["id"] == int(slot_id)), None)
+
+    if matched is None:
+        slot_options = ", ".join(s["full_display"] for s in filtered)
+        ai_text = await _speak(
+            history,
+            doctor_name,
+            situation="couldn't identify the exact slot the patient mentioned — list the available slots and ask them to pick again",
+            context=f"Available slots: {slot_options}",
+        )
+        history.append({"role": "assistant", "content": ai_text})
+        return update_state(
+            state,
+            slot_stage="ask_alternate_slot",
+            slot_available_list=filtered,
+            speech_ai_text=ai_text,
+            slot_selection_history=history,
+        )
+
     return await _resolve_and_confirm_slot(
         {**state, "slot_selection_history": history}, matched
     )
-
 
 async def _handle_selecting(
     state: dict,
@@ -726,6 +759,24 @@ _STAGE_HANDLERS = {
 async def slot_selection_node(state: dict) -> dict:
     print("[slot_selection_node] -----------------------------")
 
+    if isinstance(state.get("slot_chosen_date"), str):
+        try:
+            state = {**state, "slot_chosen_date": date.fromisoformat(state["slot_chosen_date"])}
+        except Exception:
+            state = {**state, "slot_chosen_date": None}
+
+    raw_slots = state.get("slot_available_list") or []
+    if raw_slots and isinstance(raw_slots[0].get("date"), str):
+        fixed_slots = []
+        for s in raw_slots:
+            fixed_slots.append({
+                **s,
+                "date": date.fromisoformat(s["date"]) if isinstance(s.get("date"), str) else s["date"],
+                "start_time": time_type.fromisoformat(s["start_time"]) if isinstance(s.get("start_time"), str) else s["start_time"],
+                "end_time": time_type.fromisoformat(s["end_time"]) if isinstance(s.get("end_time"), str) else s["end_time"],
+            })
+        state = {**state, "slot_available_list": fixed_slots}
+    
     if state.get("slot_booked_id"):
         return {**state, "slot_selection_completed": True}
 

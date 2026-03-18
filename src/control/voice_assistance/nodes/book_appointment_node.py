@@ -1,6 +1,6 @@
 import json
 import traceback
-
+from datetime import date, time as time_type
 from src.control.voice_assistance.models import get_llama1
 from src.control.voice_assistance.prompts.book_appointment_node_prompt import (
     DEFAULT_CONTEXT,
@@ -62,6 +62,16 @@ async def book_appointment_node(state: dict) -> dict:
         return {**state, "booking_appointment_completed": False}
 
     matched = state.get("slot_selected")
+
+    if matched:
+        if isinstance(matched.get("date"), str):
+            matched = {**matched, "date": date.fromisoformat(matched["date"])}
+        if isinstance(matched.get("start_time"), str):
+            matched = {**matched, "start_time": time_type.fromisoformat(matched["start_time"])}
+        if isinstance(matched.get("end_time"), str):
+            matched = {**matched, "end_time": time_type.fromisoformat(matched["end_time"])}
+
+    doctor_id = state.get("doctor_confirmed_id")
     doctor_id = state.get("doctor_confirmed_id")
     doctor_name = state.get("doctor_confirmed_name", "the doctor")
 

@@ -1,5 +1,4 @@
 import httpx
-
 from src.config.settings import settings
 
 AUTH_SERVICE_URL = settings.AUTH_SERVICE_URL + "/api/v1"
@@ -17,7 +16,6 @@ async def get_full_providers(token: str, appointment_type_id: int | None = None)
             headers={"Authorization": f"Bearer {token}"},
             timeout=10.0,
         )
-
         response.raise_for_status()
         return response.json()
 

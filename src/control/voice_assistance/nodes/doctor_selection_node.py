@@ -1,4 +1,3 @@
-from src.control.voice_assistance.models import ainvoke_llm
 from src.control.voice_assistance.prompts.doctor_selection_node_prompt import (
     DOCTOR_CONVERSATION_PROMPT,
     DOCTOR_INTENT_VERIFIER_PROMPT,
@@ -135,10 +134,11 @@ async def doctor_selection_node(state: dict) -> dict:
     if user_text:
         history.append({"role": "user", "content": user_text})
 
+    # ── Already confirmed a doctor ──────────────────────────────────────────
     if state.get("doctor_confirmed_id") and not user_change_request:
         if user_text:
-            messages = await ainvoke_llm(
-                [
+            response = await invokeLargeLLM_json(
+                messages=[
                     {"role": "system", "content": DOCTOR_INTENT_VERIFIER_PROMPT},
                     {
                         "role": "user",
@@ -146,10 +146,8 @@ async def doctor_selection_node(state: dict) -> dict:
                     },
                 ]
             )
-            response = await invokeLargeLLM_json(messages)
 
             user_intent = response.get("intent", "unknown")
-
             print("[user_intent]:", user_intent)
 
             if user_intent in ("asking_info", "change_request", "unclear"):
@@ -159,9 +157,17 @@ async def doctor_selection_node(state: dict) -> dict:
                     history=history,
                     intent=intent,
                 )
+                return {
+                    **state,
+                    "doctor_selection_history": history,
+                    "doctor_selection_pending": True,
+                    "doctor_selection_completed": False,
+                    "speech_ai_text": ai_text,
+                }
 
         return {**state, "doctor_selection_completed": True}
 
+    # ── Only one doctor available ───────────────────────────────────────────
     if len(available_doctors) == 1:
         doctor = available_doctors[0]
 
@@ -196,9 +202,10 @@ async def doctor_selection_node(state: dict) -> dict:
             "speech_ai_text": ai_text,
         }
 
+    # ── Selection pending — user has replied ────────────────────────────────
     if user_text and state.get("doctor_selection_pending"):
-        messages = await ainvoke_llm(
-            [
+        response = await invokeLargeLLM_json(
+            messages=[
                 {"role": "system", "content": DOCTOR_INTENT_VERIFIER_PROMPT},
                 {
                     "role": "user",
@@ -206,10 +213,8 @@ async def doctor_selection_node(state: dict) -> dict:
                 },
             ]
         )
-        response = await invokeLargeLLM_json(messages)
 
         user_intent = response.get("intent", "unknown")
-
         print("[user_intent]:", user_intent)
 
         if user_intent == "asking_info":
@@ -251,7 +256,7 @@ async def doctor_selection_node(state: dict) -> dict:
 
     ai_text = await run_doctor_llm(
         mode="present_options",
-        doctors=doctors,
+        doctors=available_doctors,
         history=history,
         intent=intent,
     )
