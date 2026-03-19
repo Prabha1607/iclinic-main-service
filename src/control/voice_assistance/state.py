@@ -11,6 +11,7 @@ class VoiceState(TypedDict):
     speech_error: str | None
 
     service_type: str | None
+    active_node: str | None
 
     identity_user_name: str | None
     identity_user_email: str | None
@@ -34,13 +35,12 @@ class VoiceState(TypedDict):
     mapping_emergency: bool | None
     mapping_appointment_type_completed: bool | None
     mapping_appointment_type_id: int | None
-    mapping_history : list[dict[str, str]] | None
-
+    mapping_history: list[dict[str, str]] | None
 
     appointment_types: dict[int, list[str]] | None
     appointments_list: list[dict] | None
 
-    doctor_selection_history : list[dict[str, str]] | None
+    doctor_selection_history: list[dict[str, str]] | None
     doctor_list: list[dict] | None
     doctor_selection_pending: bool | None
     doctor_selection_completed: bool | None
@@ -75,3 +75,5 @@ class VoiceState(TypedDict):
     cancellation_awaiting_fresh_input: bool | None
     cancellation_confirmed: bool | None
     user_change_request: str | None
+
+    explained_topics: set | None

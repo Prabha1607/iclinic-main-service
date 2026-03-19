@@ -64,6 +64,7 @@ async def pre_confirmation_node(state: dict) -> dict:
         if confirmed:
             return update_state(
                 state,
+                active_node="pre_confirmation",
                 booking_awaiting_confirmation=False,
                 pre_confirmation_completed=True,
                 pre_confirmation_retry_count=0,
@@ -79,6 +80,7 @@ async def pre_confirmation_node(state: dict) -> dict:
                 print("[pre_confirmation_node] Too many uncertain replies — cancelling")
                 return update_state(
                     state,
+                    active_node="pre_confirmation",
                     booking_awaiting_confirmation=False,
                     pre_confirmation_completed=False,
                     pre_confirmation_retry_count=0,
@@ -96,6 +98,7 @@ async def pre_confirmation_node(state: dict) -> dict:
             re_ask = f"Sorry, I didn't quite catch that. {confirmation_msg}"
             return update_state(
                 state,
+                active_node="pre_confirmation",
                 booking_awaiting_confirmation=True,
                 pre_confirmation_completed=False,
                 pre_confirmation_retry_count=retry_count,
@@ -105,6 +108,7 @@ async def pre_confirmation_node(state: dict) -> dict:
         # User declined booking
         return update_state(
             state,
+            active_node="pre_confirmation",
             booking_awaiting_confirmation=False,
             pre_confirmation_completed=False,
             pre_confirmation_retry_count=0,
@@ -133,9 +137,11 @@ async def pre_confirmation_node(state: dict) -> dict:
 
     return update_state(
         state,
+        active_node="pre_confirmation",
         booking_awaiting_confirmation=True,
         pre_confirmation_completed=False,
         pre_confirmation_retry_count=0,
         booking_context_snapshot=snapshot,
         speech_ai_text=confirmation_text,
     )
+

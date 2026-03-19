@@ -59,7 +59,7 @@ async def book_appointment_node(state: dict) -> dict:
 
     if state.get("slot_stage") != "ready_to_book":
         print("[SKIP] Slot stage not ready")
-        return {**state, "booking_appointment_completed": False}
+        return {**state, "active_node": "book_appointment", "booking_appointment_completed": False}
 
     matched = state.get("slot_selected")
 
@@ -83,7 +83,7 @@ async def book_appointment_node(state: dict) -> dict:
 
     if not matched:
         print("[ERROR] No slot selected")
-        return {**state, "booking_appointment_completed": False}
+        return {**state, "active_node": "book_appointment", "booking_appointment_completed": False}
 
     context = await extract_appointment_context(conversation_history)
 
@@ -121,6 +121,7 @@ async def book_appointment_node(state: dict) -> dict:
         traceback.print_exc()
         return update_state(
             state,
+            active_node="book_appointment",
             booking_appointment_completed=False,
             speech_ai_text="Sorry, I was unable to book your appointment. Please try again.",
         )
@@ -134,6 +135,7 @@ async def book_appointment_node(state: dict) -> dict:
 
     return update_state(
         state,
+        active_node="book_appointment",
         slot_booked_id=matched["id"],
         slot_booked_display=matched["full_display"],
         slot_stage="done",

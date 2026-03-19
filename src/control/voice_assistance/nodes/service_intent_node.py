@@ -42,6 +42,7 @@ async def service_intent_node(state: dict) -> dict:
 
         return {
             **state,
+            "active_node": "service_intent",
             "service_intent_history": history,
             "speech_ai_text": ai_text if not service_type else None,
             "service_type": service_type,
@@ -50,6 +51,7 @@ async def service_intent_node(state: dict) -> dict:
     except Exception as e:
         return {
             **state,
+            "active_node": "service_intent",
             "speech_ai_text": "Something went wrong. Please try again.",
             "speech_error": str(e),
         }

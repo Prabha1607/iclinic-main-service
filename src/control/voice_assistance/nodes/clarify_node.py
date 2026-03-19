@@ -224,6 +224,7 @@ async def clarify_node(state: dict) -> dict:
             ):
                 return update_state(
                     state,
+                    active_node="clarify",
                     speech_ai_text=EMERGENCY_RESPONSE,
                     mapping_emergency=True,
                     clarify_completed=True,
@@ -273,6 +274,7 @@ async def clarify_node(state: dict) -> dict:
 
             return update_state(
                 state,
+                active_node="clarify",
                 clarify_conversation_history=history,
                 clarify_covered_topics=covered,
                 clarify_completed=True,
@@ -302,6 +304,7 @@ async def clarify_node(state: dict) -> dict:
 
         return update_state(
             state,
+            active_node="clarify",
             speech_ai_text=ai_text,
             clarify_conversation_history=history,
             clarify_covered_topics=covered,
@@ -313,9 +316,10 @@ async def clarify_node(state: dict) -> dict:
         print("[clarify_node error]:", exc)
         return update_state(
             state,
+            active_node="clarify",
             speech_ai_text=FALLBACK_RESPONSE,
             clarify_completed=True,
             speech_error=str(exc),
         )
     
-
+    

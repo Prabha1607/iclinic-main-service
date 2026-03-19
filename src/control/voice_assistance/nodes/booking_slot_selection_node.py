@@ -5,11 +5,9 @@ from datetime import time as time_type
 from src.control.voice_assistance.models import ainvoke_llm, get_llama1
 from src.control.voice_assistance.prompts.slot_selection_node_prompt import (
     LLM_ALTERNATE_DATE_SYSTEM,
-    LLM_ALTERNATE_SLOT_SYSTEM,
     LLM_CONFIRM_SYSTEM,
     LLM_DATE_SYSTEM,
     LLM_PERIOD_SYSTEM,
-    LLM_SLOT_SYSTEM,
     NO_SLOTS_RESPONSE,
     SLOT_CONVERSATION_PROMPT,
 )
@@ -150,6 +148,92 @@ async def _resolve_and_confirm_slot(state: dict, matched_slot: dict) -> dict:
         slot_selected_display=matched_slot["display"],
         user_change_request=None,
     )
+
+
+# ── ONE-SHOT PRE-CHECK ────────────────────────────────────────────────────────
+_ONE_SHOT_SYSTEM = """You are a slot extraction assistant for a healthcare voice booking system.
+
+Given the conversation history and a list of available appointment slots, your job is to determine
+whether the patient has already provided enough information to identify a specific slot.
+
+Extract the following from the conversation:
+- date: ISO date string (YYYY-MM-DD) if mentioned
+- period: "morning", "afternoon", or "evening" if mentioned
+- slot_id: the integer ID of the matching available slot if you can confidently match one
+
+Rules:
+- Only return a slot_id if the patient's intent is clearly to book that specific slot AND it exists
+  in the available slots list.
+- If the patient mentioned a time like "6:30" or "6:30 PM", match it to the closest available slot.
+- If the patient mentioned "morning", "afternoon", or "evening", set period but leave slot_id null
+  unless a specific time was also given.
+- If the patient is just confirming or saying "ok" / "yes" without specifying a slot, return all nulls.
+- Never guess or hallucinate a slot_id that is not in the available list.
+
+Return ONLY valid JSON:
+{
+  "date": "YYYY-MM-DD or null",
+  "period": "morning/afternoon/evening or null",
+  "slot_id": integer or null,
+  "confident": true or false
+}"""
+
+
+def _build_one_shot_human(
+    history: list[dict],
+    all_slots: list[dict],
+    doctor_name: str,
+    today: str,
+) -> str:
+    history_text = "\n".join(
+        f"  {m['role'].capitalize()}: {m['content']}"
+        for m in history
+        if m.get("content", "").strip()
+    )
+
+    slots_text = "\n".join(
+        f"  id={s['id']} date={s['date']} period={s['period']} "
+        f"start={s['start_time']} end={s['end_time']} display={s['display']}"
+        for s in all_slots
+    )
+
+    return (
+        f"Today's date: {today}\n"
+        f"Doctor: {doctor_name}\n\n"
+        f"Conversation so far:\n{history_text or '  (none)'}\n\n"
+        f"Available slots:\n{slots_text or '  (none)'}"
+    )
+
+
+async def _run_one_shot_precheck(
+    history: list[dict],
+    all_slots: list[dict],
+    doctor_name: str,
+) -> dict:
+    """
+    Single LLM call that reads the full conversation history + all available
+    slots and tries to extract date / period / slot_id in one shot.
+    Returns dict with keys: date, period, slot_id, confident (all nullable).
+    """
+    try:
+        human = _build_one_shot_human(
+            history=history,
+            all_slots=all_slots,
+            doctor_name=doctor_name,
+            today=_today_ist().isoformat(),
+        )
+        result = await invokeLargeLLM_json(
+            messages=[
+                {"role": "system", "content": _ONE_SHOT_SYSTEM},
+                {"role": "user", "content": human},
+            ]
+        )
+        print("[one_shot_precheck] result:", result)
+        return result or {}
+    except Exception as e:
+        print("[one_shot_precheck] error:", e)
+        return {}
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 async def _handle_ask_date(
@@ -810,7 +894,7 @@ async def slot_selection_node(state: dict) -> dict:
                 "end_time": time_type.fromisoformat(s["end_time"]) if isinstance(s.get("end_time"), str) else s["end_time"],
             })
         state = {**state, "slot_available_list": fixed_slots}
-    
+
     if state.get("slot_booked_id"):
         return {**state, "slot_selection_completed": True}
 
@@ -847,6 +931,106 @@ async def slot_selection_node(state: dict) -> dict:
         )
 
     available_dates = get_available_dates(all_slots)
+
+    # ── ONE-SHOT PRE-CHECK ────────────────────────────────────────────────────
+    # Single LLM call over full conversation history + all available slots.
+    # Tries to resolve date / period / slot_id immediately so we can skip
+    # multiple stage-handler round-trips when the patient gave enough info.
+    # Only fires when there is actual user input and we are in an early stage.
+    if user_text and slot_stage in (
+        None, "ask_date", "ask_period", "ask_slot",
+        "ask_alternate_date", "ask_alternate_slot",
+    ):
+        precheck = await _run_one_shot_precheck(
+            history=history,
+            all_slots=all_slots,
+            doctor_name=doctor_name,
+        )
+
+        if precheck.get("confident"):
+            slot_id = precheck.get("slot_id")
+            extracted_date = _parse_date(precheck.get("date"))
+            extracted_period = (precheck.get("period") or "").lower()
+
+            # Case 1: specific slot confidently identified — verify it exists then book
+            if slot_id:
+                matched = next(
+                    (s for s in all_slots if s["id"] == int(slot_id)), None
+                )
+                if matched:
+                    print(
+                        f"[one_shot_precheck] confident slot match: "
+                        f"id={slot_id} {matched['full_display']}"
+                    )
+                    ai_text = await _speak(
+                        history,
+                        doctor_name,
+                        situation="confirm the exact slot the patient just chose",
+                        context=(
+                            f"Chosen slot: {matched['full_display']}, "
+                            f"Doctor: {doctor_name}"
+                        ),
+                    )
+                    history.append({"role": "assistant", "content": ai_text})
+                    return await _resolve_and_confirm_slot(
+                        {**state, "slot_selection_history": history}, matched
+                    )
+
+            # Case 2: date + period both identified — jump straight to slot listing
+            if extracted_date and extracted_period:
+                date_slots = slots_for_date(all_slots, extracted_date)
+                period_slots = [
+                    s for s in date_slots if s["period"] == extracted_period
+                ]
+                if period_slots:
+                    print(
+                        f"[one_shot_precheck] confident date+period: "
+                        f"{extracted_date} {extracted_period}"
+                    )
+                    slot_options = ", ".join(s["display"] for s in period_slots)
+                    ai_text = await _speak(
+                        history,
+                        doctor_name,
+                        situation=(
+                            "present the available time slots for the date and period "
+                            "the patient chose and ask them to pick one"
+                        ),
+                        context=(
+                            f"Date: {format_date(extracted_date)}, "
+                            f"Period: {extracted_period}, "
+                            f"Available slots: {slot_options}"
+                        ),
+                    )
+                    history.append({"role": "assistant", "content": ai_text})
+                    return update_state(
+                        state,
+                        slot_stage="ask_slot",
+                        slot_chosen_date=extracted_date,
+                        slot_chosen_period=extracted_period,
+                        slot_available_list=period_slots,
+                        speech_ai_text=ai_text,
+                        slot_selection_history=history,
+                    )
+
+            # Case 3: only date identified confidently — skip straight to period/slot
+            if extracted_date:
+                date_slots = slots_for_date(all_slots, extracted_date)
+                if date_slots:
+                    print(
+                        f"[one_shot_precheck] confident date only: {extracted_date}"
+                    )
+                    return await _proceed_to_period(
+                        {**state, "slot_selection_history": history},
+                        doctor_name,
+                        extracted_date,
+                        date_slots,
+                    )
+
+        print(
+            "[one_shot_precheck] not confident or no match — "
+            "falling through to stage handler"
+        )
+    # ─────────────────────────────────────────────────────────────────────────
 
     if slot_stage is None:
         ai_text = f"Now let's find a good time with {doctor_name}. What date were you thinking?"

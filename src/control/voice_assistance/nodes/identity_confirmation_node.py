@@ -31,6 +31,7 @@ async def identity_confirmation_node(state: dict[str, Any]) -> dict[str, Any]:
     if not patient_name:
         return {
             **state,
+            "active_node": "identity_confirmation",
             "speech_ai_text": "Could you please tell me your name and phone number so I can look up your account?",
         }
 
@@ -57,7 +58,7 @@ async def identity_confirmation_node(state: dict[str, Any]) -> dict[str, Any]:
 
     except Exception as e:
         print("[LLM ERROR]", e)
-        return state
+        return {**state, "active_node": "identity_confirmation"}
 
     confirmed = False
     corrected_name = None
@@ -92,6 +93,7 @@ async def identity_confirmation_node(state: dict[str, Any]) -> dict[str, Any]:
 
     return {
         **state,
+        "active_node": "identity_confirmation",
         "identity_conversation_history": conversation_history,
         "identity_confirmed_user": confirmed,
         "identity_confirmation_completed": confirmed,

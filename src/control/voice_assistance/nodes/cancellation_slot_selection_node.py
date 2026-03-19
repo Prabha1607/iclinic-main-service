@@ -102,12 +102,13 @@ async def _handle_initial(state: dict, user_id: int) -> dict:
     except Exception as e:
         print(f"[cancellation_slot_selection_node] DB ERROR: {type(e).__name__}: {e}")
         return update_state(
-            state, speech_ai_text=DB_ERROR_RESPONSE, cancellation_complete=True
+            state, active_node="cancellation_slot_selection", speech_ai_text=DB_ERROR_RESPONSE, cancellation_complete=True
         )
 
     if not rows:
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             cancellation_complete=True,
             speech_ai_text=NO_APPOINTMENTS_RESPONSE,
         )
@@ -121,6 +122,7 @@ async def _handle_initial(state: dict, user_id: int) -> dict:
             chosen = appointments_list[0]
             return update_state(
                 state,
+                active_node="cancellation_slot_selection",
                 appointments_list=appointments_list,
                 cancellation_appointment=chosen,
                 cancellation_stage="ask_confirm",
@@ -136,6 +138,7 @@ async def _handle_initial(state: dict, user_id: int) -> dict:
 
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             appointments_list=appointments_list,
             cancellation_stage="ask_slot",
             speech_ai_text=(
@@ -147,6 +150,7 @@ async def _handle_initial(state: dict, user_id: int) -> dict:
 
     return update_state(
         state,
+        active_node="cancellation_slot_selection",
         appointments_list=appointments_list,
         cancellation_stage="ask_date",
         speech_ai_text=(
@@ -164,6 +168,7 @@ async def _handle_ask_date(state: dict, user_text: str) -> dict:
         date_lines = "\n".join(f"  - {d}" for d in dates)
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             speech_ai_text=f"Please tell me which date. Available dates:\n{date_lines}",
         )
 
@@ -179,13 +184,14 @@ async def _handle_ask_date(state: dict, user_text: str) -> dict:
     except Exception as e:
         print(f"[cancellation_slot_selection_node] LLM ERROR: {type(e).__name__}: {e}")
         return update_state(
-            state, speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
+            state, active_node="cancellation_slot_selection", speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
         )
 
     if matched_date == "UNKNOWN":
         date_lines = "\n".join(f"  - {d}" for d in dates)
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             speech_ai_text=(
                 f"I couldn't understand that date. Your upcoming appointments are on:\n{date_lines}\n"
                 "Which date would you like to cancel?"
@@ -198,6 +204,7 @@ async def _handle_ask_date(state: dict, user_text: str) -> dict:
         date_lines = "\n".join(f"  - {d}" for d in dates)
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             speech_ai_text=(
                 f"I couldn't find any appointments on {matched_date}. "
                 f"Your upcoming appointments are on:\n{date_lines}\n"
@@ -209,6 +216,7 @@ async def _handle_ask_date(state: dict, user_text: str) -> dict:
         chosen = slots_on_date[0]
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             cancellation_appointment=chosen,
             cancellation_stage="ask_confirm",
             cancellation_awaiting_fresh_input=True,
@@ -222,6 +230,7 @@ async def _handle_ask_date(state: dict, user_text: str) -> dict:
 
     return update_state(
         state,
+        active_node="cancellation_slot_selection",
         cancellation_stage="ask_slot",
         speech_ai_text=(
             f"You have {len(slots_on_date)} appointments on {matched_date}. "
@@ -236,7 +245,7 @@ async def _handle_ask_slot(state: dict, user_text: str) -> dict:
 
     if not user_text:
         return update_state(
-            state, speech_ai_text="Please say which time slot you would like to cancel."
+            state, active_node="cancellation_slot_selection", speech_ai_text="Please say which time slot you would like to cancel."
         )
 
     try:
@@ -258,7 +267,7 @@ async def _handle_ask_slot(state: dict, user_text: str) -> dict:
     except Exception as e:
         print(f"[cancellation_slot_selection_node] LLM ERROR: {type(e).__name__}: {e}")
         return update_state(
-            state, speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
+            state, active_node="cancellation_slot_selection", speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
         )
 
     if matched_index == "UNKNOWN":
@@ -268,6 +277,7 @@ async def _handle_ask_slot(state: dict, user_text: str) -> dict:
         )
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             speech_ai_text=f"I could not understand. Please say one of these slots: {spoken}.",
         )
 
@@ -276,11 +286,13 @@ async def _handle_ask_slot(state: dict, user_text: str) -> dict:
     except (ValueError, IndexError):
         return update_state(
             state,
+            active_node="cancellation_slot_selection",
             speech_ai_text="I could not find that slot. Please say the time or number of the appointment you want to cancel.",
         )
 
     return update_state(
         state,
+        active_node="cancellation_slot_selection",
         cancellation_appointment=chosen,
         cancellation_stage="ask_confirm",
         cancellation_awaiting_fresh_input=True,
@@ -325,4 +337,5 @@ async def cancellation_slot_selection_node(state: dict) -> dict:
     print(
         f"[cancellation_slot_selection_node] WARNING: Unhandled stage='{stage}' — passing through."
     )
-    return state
+    return {**state, "active_node": "cancellation_slot_selection"}
+

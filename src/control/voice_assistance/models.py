@@ -39,17 +39,19 @@ async def ainvoke_llm(messages):
     attempts = 0
     last_error = None
 
+    start_index = current_key_index  # remember start
+
     while attempts < len(API_KEYS):
         api_key = API_KEYS[current_key_index]
 
         try:
             response = await get_llama3(api_key).ainvoke(messages)
+
             return response
 
         except Exception as e:
             last_error = e
 
-            # move to next key
             current_key_index = (current_key_index + 1) % len(API_KEYS)
             attempts += 1
 

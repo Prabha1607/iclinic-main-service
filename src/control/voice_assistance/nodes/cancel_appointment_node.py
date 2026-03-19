@@ -46,6 +46,7 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
     if not user_text:
         return update_state(
             state,
+            active_node="cancel_appointment",
             speech_ai_text="Please confirm. Would you like to cancel this appointment? Say yes or no.",
         )
 
@@ -68,12 +69,13 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
     except Exception as e:
         print(f"[cancel_appointment_node] LLM ERROR: {type(e).__name__}: {e}")
         return update_state(
-            state, speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
+            state, active_node="cancel_appointment", speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
         )
 
     if decision != "YES":
         return update_state(
             state,
+            active_node="cancel_appointment",
             cancellation_stage="done",
             cancellation_complete=True,
             speech_ai_text=(
@@ -88,11 +90,12 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
     except Exception as e:
         print(f"[cancel_appointment_node] DB ERROR: {type(e).__name__}: {e}")
         return update_state(
-            state, speech_ai_text=CANCEL_ERROR_RESPONSE, cancellation_complete=True
+            state, active_node="cancel_appointment", speech_ai_text=CANCEL_ERROR_RESPONSE, cancellation_complete=True
         )
 
     return update_state(
         state,
+        active_node="cancel_appointment",
         cancellation_stage="done",
         cancellation_complete=True,
         cancellation_confirmed=True,
@@ -112,7 +115,7 @@ async def cancel_appointment_node(state: dict) -> dict:
         print(
             "[cancel_appointment_node] Awaiting fresh user input — skipping confirmation check."
         )
-        return update_state(state, cancellation_awaiting_fresh_input=False)
+        return update_state(state, active_node="cancel_appointment", cancellation_awaiting_fresh_input=False)
 
     user_text = state.get("speech_user_text")
     stage = state.get("cancellation_stage")
@@ -125,4 +128,4 @@ async def cancel_appointment_node(state: dict) -> dict:
     print(
         f"[cancel_appointment_node] WARNING: Unhandled stage='{stage}' — passing through."
     )
-    return state
+    return {**state, "active_node": "cancel_appointment"}

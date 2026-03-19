@@ -92,6 +92,25 @@ async def _verify_selection(
         return None, None
 
 
+def _resolve_doctor_from_history(
+    history: list[dict], doctors: list[dict]
+) -> tuple[int | None, str | None]:
+    """
+    When the user gives a vague confirmation (e.g. 'ok', 'fine', 'get it'),
+    try to find the last doctor name mentioned in assistant messages and
+    match it to the available doctors list.
+    """
+    # Walk history in reverse to find the most recently mentioned doctor
+    for msg in reversed(history):
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content", "").lower()
+        for d in doctors:
+            if d["name"].lower() in content:
+                return d["id"], d["name"]
+    return None, None
+
+
 async def doctor_selection_node(state: dict) -> dict:
     print("[doctor_selection_node] -----------------------------")
 
@@ -117,6 +136,7 @@ async def doctor_selection_node(state: dict) -> dict:
         history.append({"role": "assistant", "content": NO_DOCTORS_RESPONSE})
         return {
             **state,
+            "active_node": "doctor_selection",
             "doctor_selection_history": history,
             "doctor_selection_completed": True,
             "speech_ai_text": NO_DOCTORS_RESPONSE,
@@ -126,28 +146,31 @@ async def doctor_selection_node(state: dict) -> dict:
         history.append({"role": "assistant", "content": NO_DOCTORS_RESPONSE})
         return {
             **state,
+            "active_node": "doctor_selection",
             "doctor_selection_history": history,
             "doctor_selection_completed": True,
             "speech_ai_text": NO_DOCTORS_RESPONSE,
         }
 
     if user_change_request and previous_doctor_name:
-        available_doctors = [
-            d for d in doctors if d["name"] != previous_doctor_name
-        ] or doctors
+        available_doctors = (
+            [d for d in doctors if d["name"] != previous_doctor_name] or doctors
+        )
     else:
         available_doctors = doctors
 
-    # ── Already confirmed a doctor ──────────────────────────────────────────
+    # ── Already confirmed a doctor, no change requested ─────────────────────
     if state.get("doctor_confirmed_id") and not user_change_request:
         print("[doctor_selection_node] doctor already confirmed — skipping to completed")
         return {
             **state,
+            "active_node": "doctor_selection",
             "doctor_selection_history": history,
             "doctor_selection_completed": True,
             "doctor_selection_pending": False,
         }
 
+    # ── Only one doctor available ────────────────────────────────────────────
     if len(available_doctors) == 1:
         doctor = available_doctors[0]
 
@@ -156,6 +179,7 @@ async def doctor_selection_node(state: dict) -> dict:
             history.append({"role": "assistant", "content": ai_text})
             return {
                 **state,
+                "active_node": "doctor_selection",
                 "user_change_request": None,
                 "doctor_confirmed_id": doctor["id"],
                 "doctor_confirmed_name": doctor["name"],
@@ -173,6 +197,7 @@ async def doctor_selection_node(state: dict) -> dict:
         )
         return {
             **state,
+            "active_node": "doctor_selection",
             "user_change_request": None,
             "doctor_confirmed_id": doctor["id"],
             "doctor_confirmed_name": doctor["name"],
@@ -182,13 +207,17 @@ async def doctor_selection_node(state: dict) -> dict:
             "speech_ai_text": ai_text,
         }
 
+    # ── Multiple doctors — handle user input ─────────────────────────────────
     if user_text and state.get("doctor_selection_pending"):
         response = await invokeLargeLLM_json(
             messages=[
                 {"role": "system", "content": DOCTOR_INTENT_VERIFIER_PROMPT},
                 {
                     "role": "user",
-                    "content": f"Doctors:\n{_doctors_context(available_doctors)}\n\nPatient said: {user_text}",
+                    "content": (
+                        f"Doctors:\n{_doctors_context(available_doctors)}\n\n"
+                        f"Patient said: {user_text}"
+                    ),
                 },
             ]
         )
@@ -196,6 +225,7 @@ async def doctor_selection_node(state: dict) -> dict:
         user_intent = response.get("intent", "unknown")
         print("[user_intent]:", user_intent)
 
+        # ── User is asking a question about a doctor ─────────────────────────
         if user_intent == "asking_info":
             ai_text = await run_doctor_llm(
                 mode="handle_question",
@@ -205,6 +235,7 @@ async def doctor_selection_node(state: dict) -> dict:
             )
             return {
                 **state,
+                "active_node": "doctor_selection",
                 "doctor_selection_history": history,
                 "doctor_selection_pending": True,
                 "doctor_selection_completed": False,
@@ -215,6 +246,17 @@ async def doctor_selection_node(state: dict) -> dict:
             doctor_id, doctor_name = await _verify_selection(
                 user_text, available_doctors
             )
+
+            if not doctor_id:
+                doctor_id, doctor_name = _resolve_doctor_from_history(
+                    history, available_doctors
+                )
+                if doctor_id:
+                    print(
+                        f"[doctor_selection_node] fallback resolved doctor "
+                        f"from history: {doctor_name}"
+                    )
+
             if doctor_id:
                 ai_text = await run_doctor_llm(
                     mode="confirm_selection",
@@ -224,6 +266,7 @@ async def doctor_selection_node(state: dict) -> dict:
                 )
                 return {
                     **state,
+                    "active_node": "doctor_selection",
                     "user_change_request": None,
                     "doctor_confirmed_id": doctor_id,
                     "doctor_confirmed_name": doctor_name,
@@ -232,6 +275,22 @@ async def doctor_selection_node(state: dict) -> dict:
                     "doctor_selection_history": history,
                     "speech_ai_text": ai_text,
                 }
+
+            
+            ai_text = await run_doctor_llm(
+                mode="handle_question",
+                doctors=doctors,
+                history=history,
+                intent=intent,
+            )
+            return {
+                **state,
+                "active_node": "doctor_selection",
+                "doctor_selection_history": history,
+                "doctor_selection_pending": True,
+                "doctor_selection_completed": False,   
+                "speech_ai_text": ai_text,
+            }
 
     ai_text = await run_doctor_llm(
         mode="present_options",
@@ -242,10 +301,10 @@ async def doctor_selection_node(state: dict) -> dict:
 
     return {
         **state,
+        "active_node": "doctor_selection",
         "doctor_selection_pending": True,
         "doctor_selection_completed": False,
         "doctor_list": available_doctors,
         "doctor_selection_history": history,
         "speech_ai_text": ai_text,
     }
-
