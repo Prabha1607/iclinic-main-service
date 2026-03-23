@@ -18,7 +18,6 @@ SAFE      → for everything else, including:
 Always default to SAFE if unsure. Only classify EMERGENCY when it is clearly life-threatening.
 """.strip()
 
-
 COVERAGE_CHECK_SYSTEM_PROMPT = """
 You are a strict medical intake checker. Your job is to check which topics have been CLEARLY and EXPLICITLY answered IN THIS CLARIFY CONVERSATION ONLY.
 

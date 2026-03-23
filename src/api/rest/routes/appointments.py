@@ -55,6 +55,7 @@ async def create_appointment(
         provider = await fetch_user_by_id(token=token, user_id=provider_id)
 
         if not user:
+            
             raise HTTPException(status_code=404, detail="User not found")
 
         if not provider:

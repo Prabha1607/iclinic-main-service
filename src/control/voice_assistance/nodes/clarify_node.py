@@ -1,5 +1,4 @@
 import asyncio
-
 from src.control.voice_assistance.models import get_llama1
 from src.control.voice_assistance.prompts.clarify_node_prompt import (
     CLARIFY_SYSTEM_PROMPT,
@@ -132,8 +131,7 @@ async def _run_mapping(
             _resolve_appointment_type_id(intent, appointment_types),
             timeout=3.0,
         )
-        print("[mapping] intent:", intent, "| type_id:", appointment_type_id)
-        print("[mapping] reason:", reason_for_visit)
+  
         return appointment_type_id, intent, reason_for_visit
 
     except TimeoutError:
@@ -146,7 +144,6 @@ async def _run_mapping(
 
 
 async def get_covered_topics(history: list[dict], topics: list[str]) -> list[str]:
-    """Return the subset of `topics` that are already covered in `history`."""
     unchecked_numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(topics))
     conversation = _build_conversation_string(history)
 
@@ -156,7 +153,6 @@ async def get_covered_topics(history: list[dict], topics: list[str]) -> list[str
     )
 
     raw = await invokeLLM(COVERAGE_CHECK_SYSTEM_PROMPT, user_prompt)
-    print("[coverage_check raw]:", raw)
 
     if raw == "none" or not raw or raw.upper() == "NONE":
         return []
@@ -169,7 +165,6 @@ async def get_covered_topics(history: list[dict], topics: list[str]) -> list[str
 
 
 async def _refresh_covered_topics(history: list[dict], covered: list[str]) -> list[str]:
-    """Check unchecked topics against history and return updated covered list."""
     unchecked = [t for t in TOPICS if t not in covered]
     if not unchecked:
         return covered
@@ -184,7 +179,6 @@ async def _refresh_covered_topics(history: list[dict], covered: list[str]) -> li
 
 
 def _build_clarify_messages(history: list[dict], uncovered: list[str]) -> list[dict]:
-    """Build the message list for the clarify LLM call."""
     seed = history if history else [{"role": "user", "content": "start"}]
     return [
         {
@@ -196,7 +190,6 @@ def _build_clarify_messages(history: list[dict], uncovered: list[str]) -> list[d
         },
         *seed,
     ]
-
 
 
 async def clarify_node(state: dict) -> dict:
@@ -245,8 +238,6 @@ async def clarify_node(state: dict) -> dict:
                 covered = await _refresh_covered_topics(history, covered)
 
         uncovered = [t for t in TOPICS if t not in covered]
-        print("[covered_topics]:", covered)
-        print("[uncovered_topics]:", uncovered)
 
         if not uncovered:
             conversation_str = _build_conversation_string(history)
@@ -256,11 +247,7 @@ async def clarify_node(state: dict) -> dict:
                     conversation_str, appointment_types
                 )
             else:
-                print(
-                    "[clarify_node] WARNING: appointment_types is empty — "
-                    "cannot map. Check that appointment_types is loaded into "
-                    "state before clarify_node runs."
-                )
+              
                 appointment_type_id, intent = _fallback_type(appointment_types)
                 reason_for_visit = ""
 
@@ -321,5 +308,3 @@ async def clarify_node(state: dict) -> dict:
             clarify_completed=True,
             speech_error=str(exc),
         )
-    
-    

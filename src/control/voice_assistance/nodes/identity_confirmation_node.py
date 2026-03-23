@@ -1,23 +1,20 @@
 from typing import Any
-
 from src.control.voice_assistance.prompts.confirmation_node_prompt import (
     CONVERSATION_PROMPT,
     VERIFIER_PROMPT,
 )
 from src.control.voice_assistance.utils import invokeLargeLLM, invokeLargeLLM_json
 
-
 def apply_corrections(
     state: dict[str, Any],
     corrected_name: str | None,
-    corrected_phone: str | None,
+    corrected_phone: str | None 
 ) -> dict[str, Any]:
     if corrected_name:
         state["identity_user_name"] = corrected_name
     if corrected_phone:
         state["identity_user_phone"] = corrected_phone
     return state
-
 
 async def identity_confirmation_node(state: dict[str, Any]) -> dict[str, Any]:
 
@@ -58,7 +55,7 @@ async def identity_confirmation_node(state: dict[str, Any]) -> dict[str, Any]:
 
     except Exception as e:
         print("[LLM ERROR]", e)
-        return {**state, "active_node": "identity_confirmation"}
+        return state
 
     confirmed = False
     corrected_name = None
@@ -99,3 +96,5 @@ async def identity_confirmation_node(state: dict[str, Any]) -> dict[str, Any]:
         "identity_confirmation_completed": confirmed,
         "speech_ai_text": response,
     }
+
+

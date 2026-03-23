@@ -1,5 +1,4 @@
 import json
-
 from src.control.voice_assistance.models import get_llama1
 from src.control.voice_assistance.prompts.pre_confirmation_noode_prompt import (
     INTENT_DETECTION_SYSTEM_PROMPT,
@@ -29,9 +28,6 @@ def _build_snapshot(state: dict) -> dict:
 
 
 async def _generate_confirmation_message(snapshot: dict) -> str:
-    """
-    Generates a human-readable booking confirmation message from snapshot using LLM.
-    """
     llm = get_llama1()
     response = await llm.ainvoke(
         [
@@ -46,6 +42,24 @@ async def _generate_confirmation_message(snapshot: dict) -> str:
 
 
 async def pre_confirmation_node(state: dict) -> dict:
+    print("\n[pre_confirmation_node] --------------------------------")
+
+    # FIX: If stt_node detected a change request (doctor / date / slot),
+    # do NOT treat this turn as a confirmation reply. Route back to slot
+    # selection so the patient can re-select.
+    # This fixes the race where "I want to go with 10 o'clock" was
+    # interpreted as confirming the previously selected slot.
+    if state.get("user_change_request"):
+        print(
+            f"[pre_confirmation_node] Change request detected "
+            f"({state['user_change_request']!r}) — deferring to slot selection"
+        )
+        return update_state(
+            state,
+            active_node="booking_slot_selection",
+            booking_awaiting_confirmation=False,
+            pre_confirmation_completed=False,
+        )
 
     awaiting = state.get("booking_awaiting_confirmation", False)
 
@@ -60,7 +74,6 @@ async def pre_confirmation_node(state: dict) -> dict:
         confirmed = bool(response.get("confirmed"))
         uncertain = bool(response.get("uncertain"))
 
-        # User confirmed booking
         if confirmed:
             return update_state(
                 state,
@@ -71,13 +84,12 @@ async def pre_confirmation_node(state: dict) -> dict:
                 speech_ai_text=None,
             )
 
-        # User reply is uncertain
         if uncertain:
             retry_count = state.get("pre_confirmation_retry_count", 0) + 1
             print(f"[pre_confirmation_node] Uncertain reply (attempt {retry_count})")
 
             if retry_count >= 3:
-                print("[pre_confirmation_node] Too many uncertain replies — cancelling")
+                print("[pre_confirmation_node] Too many uncertain replies — resetting to slot selection")
                 return update_state(
                     state,
                     active_node="pre_confirmation",
@@ -86,7 +98,7 @@ async def pre_confirmation_node(state: dict) -> dict:
                     pre_confirmation_retry_count=0,
                     slot_selected=None,
                     slot_stage="ask_date",
-                    slot_selection_completed=False,
+                    booking_slot_selection_completed=False,
                     speech_ai_text=(
                         "I'm having a little trouble hearing you clearly. "
                         "Let me take you back to the slot selection so we can start fresh."
@@ -105,7 +117,7 @@ async def pre_confirmation_node(state: dict) -> dict:
                 speech_ai_text=re_ask,
             )
 
-        # User declined booking
+        # Patient declined — go back to slot selection
         return update_state(
             state,
             active_node="pre_confirmation",
@@ -114,14 +126,14 @@ async def pre_confirmation_node(state: dict) -> dict:
             pre_confirmation_retry_count=0,
             slot_selected=None,
             slot_stage="ask_date",
-            slot_selection_completed=False,
+            booking_slot_selection_completed=False,
             speech_ai_text=(
                 "No problem! Let me show you the available slots again "
                 "so you can pick a different time."
             ),
         )
 
-    # Not yet awaiting confirmation, generate initial confirmation
+    # Not yet awaiting confirmation — generate initial confirmation message
     snapshot = _build_snapshot(state)
     try:
         confirmation_text = await _generate_confirmation_message(snapshot)
@@ -144,4 +156,3 @@ async def pre_confirmation_node(state: dict) -> dict:
         booking_context_snapshot=snapshot,
         speech_ai_text=confirmation_text,
     )
-
