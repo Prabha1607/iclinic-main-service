@@ -22,3 +22,25 @@ Reply ONLY with valid JSON — no markdown, no extra text:
 """.strip()
 
 DEFAULT_CONTEXT = {"reason_for_visit": None, "notes": None, "instructions": None}
+
+def build_history_text(conversation_history: list | str) -> str:
+    if not isinstance(conversation_history, list):
+        return str(conversation_history)
+
+    lines = []
+
+    for turn in conversation_history:
+        if isinstance(turn, dict):
+            role = turn.get("role", "unknown").capitalize()
+            text = turn.get("content", "")
+
+        elif isinstance(turn, (list, tuple)) and len(turn) == 2:
+            role, text = turn[0].capitalize(), turn[1]
+
+        else:
+            continue
+
+        lines.append(f"{role}: {text}")
+
+    return "\n".join(lines)
+

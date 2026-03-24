@@ -154,3 +154,22 @@ GENERAL RULES
 
 Respond with ONLY the spoken sentence(s).
 """.strip()
+
+def doctors_context(doctors: list[dict]) -> str:
+    return "\n".join(
+        f"{i+1}. id={d['id']} name={d['name']} "
+        f"specialization={d['specialization']} "
+        f"experience={d['experience']}yrs "
+        f"qualification={d['qualification']} bio={d['bio']}"
+        for i, d in enumerate(doctors)
+    )
+
+def doctor_summary(doctor: dict | None) -> str:
+    if not doctor:
+        return "none"
+    return (
+        f"{doctor['name']} (id={doctor['id']}, "
+        f"specialization={doctor['specialization']}, "
+        f"experience={doctor['experience']}yrs, "
+        f"qualification={doctor['qualification']})"
+    )

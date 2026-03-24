@@ -1,5 +1,4 @@
 def route_after_stt(state: dict) -> str:
-
     service_type = state.get("service_type")
 
     if state.get("is_out_of_context"):
@@ -9,8 +8,6 @@ def route_after_stt(state: dict) -> str:
         return "service_intent"
 
     if service_type == "booking":
-
-        # ── Slot resolved — check BEFORE change requests ──────────────────────
         if (
             state.get("booking_slot_selection_completed")
             and state.get("slot_stage") == "ready_to_book"
@@ -19,23 +16,20 @@ def route_after_stt(state: dict) -> str:
         ):
             return "pre_confirmation"
 
-        # ── change_doctor reset ───────────────────────────────────────────────
         if (
             state.get("user_change_request")
             and not state.get("doctor_selection_completed")
         ):
             return "doctor_selection"
 
-        # ── change_date reset ─────────────────────────────────────────────────
         if (
             state.get("user_change_request")
             and state.get("doctor_selection_completed")
             and not state.get("booking_slot_selection_completed")
-            and state.get("slot_stage") in (None, "ask_date", "ask_alternate_date")  # <-- was: slot_stage is None
+            and state.get("slot_stage") in (None, "ask_date", "ask_alternate_date")
         ):
             return "booking_slot_selection"
 
-        # ── change_slot reset ─────────────────────────────────────────────────
         if (
             state.get("user_change_request")
             and state.get("doctor_selection_completed")
@@ -44,7 +38,6 @@ def route_after_stt(state: dict) -> str:
         ):
             return "booking_slot_selection"
 
-        # ── Slot mid-conversation ─────────────────────────────────────────────
         if (
             state.get("doctor_selection_completed")
             and not state.get("booking_slot_selection_completed")
@@ -88,15 +81,10 @@ def route_after_cancellation_slot_selection(state: dict) -> str:
 
 
 def route_after_pre_confirmation(state: dict) -> str:
-    # FIX: pre_confirmation_node returns active_node="booking_slot_selection"
-    # when stt_node detected a change request. Without this check the router
-    # falls through to tts, leaving the patient stuck.
     if state.get("active_node") == "booking_slot_selection":
         return "booking_slot_selection"
-
     if state.get("pre_confirmation_completed"):
         return "book_appointment"
-
     return "tts"
 
 

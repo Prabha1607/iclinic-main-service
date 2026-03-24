@@ -16,7 +16,7 @@ class VoiceState(TypedDict):
     service_type: str | None
     service_intent_history: list[dict[str, str]] | None
     active_node: str | None
-    is_out_of_context: bool | None              # set by stt_node when utterance is off-topic
+    is_out_of_context: bool | None              
 
     # ── Identity confirmation ─────────────────────────────────────────────────
     identity_user_name: str | None

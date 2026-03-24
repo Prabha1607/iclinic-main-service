@@ -1,19 +1,23 @@
+import logging
 from datetime import UTC, datetime
 
-from src.control.voice_assistance.models import get_llama1
+from src.control.voice_assistance.utils.llm_utils import invokeLLM
 from src.control.voice_assistance.prompts.cancel_appointment_node_prompt import (
     CANCEL_ERROR_RESPONSE,
     CONFIRM_PROMPT,
     ERROR_RESPONSE,
 )
-from src.control.voice_assistance.utils import update_state
+from src.control.voice_assistance.utils.state_utils import update_state
 from src.data.clients.postgres_client import AsyncSessionLocal
 from src.data.models.postgres.appointment import Appointment
 from src.data.models.postgres.ENUM import AppointmentStatus
 from src.data.repositories.generic_crud import update_instance
 
+logger = logging.getLogger(__name__)
+
 
 async def _cancel_appointment_in_db(appointment_id: int) -> None:
+    
     async with AsyncSessionLocal() as session:
         await update_instance(
             id=appointment_id,
@@ -26,14 +30,8 @@ async def _cancel_appointment_in_db(appointment_id: int) -> None:
         )
 
 
-async def _llm_invoke(system: str, human: str) -> str:
-    model = get_llama1()
-    response = await model.ainvoke([("system", system), ("human", human)])
-    return response.content.strip()
-
-
 def _parse_decision(raw: str) -> str:
-
+    
     first_word = raw.strip().split()[0].upper().rstrip(".,;:")
     if first_word == "YES":
         return "YES"
@@ -41,6 +39,7 @@ def _parse_decision(raw: str) -> str:
 
 
 async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
+    
     appointment_data = state.get("cancellation_appointment")
 
     if not user_text:
@@ -51,8 +50,8 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
         )
 
     try:
-        raw_decision = await _llm_invoke(
-            system=CONFIRM_PROMPT.format(
+        raw_decision = await invokeLLM(
+            system_prompt=CONFIRM_PROMPT.format(
                 date=appointment_data["date"],
                 start_time=appointment_data["start_time"],
                 end_time=appointment_data["end_time"],
@@ -60,16 +59,25 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
                 reason=appointment_data["reason"],
                 user_text=user_text,
             ),
-            human=user_text,
+            user_prompt=user_text,
         )
         decision = _parse_decision(raw_decision)
-        print(
-            f"[cancel_appointment_node] Raw decision: '{raw_decision}' → Parsed: '{decision}'"
+        logger.info(
+            "Cancellation decision for appointment_id=%s: raw=%r parsed=%s.",
+            appointment_data.get("id"),
+            raw_decision,
+            decision,
         )
-    except Exception as e:
-        print(f"[cancel_appointment_node] LLM ERROR: {type(e).__name__}: {e}")
+    except Exception:
+        logger.exception(
+            "LLM invocation failed during cancellation confirmation for appointment_id=%s.",
+            appointment_data.get("id"),
+        )
         return update_state(
-            state, active_node="cancel_appointment", speech_ai_text=ERROR_RESPONSE, cancellation_complete=True
+            state,
+            active_node="cancel_appointment",
+            speech_ai_text=ERROR_RESPONSE,
+            cancellation_complete=True,
         )
 
     if decision != "YES":
@@ -80,17 +88,26 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
             cancellation_complete=True,
             speech_ai_text=(
                 f"Okay, your {appointment_data['type_name']} appointment on "
-                f"{appointment_data['date']} remains scheduled. "
+                f"{appointment_data['date']} remains scheduled."
             ),
         )
 
     try:
         await _cancel_appointment_in_db(appointment_data["id"])
-        print("[cancel_appointment_node] Appointment cancelled in DB")
-    except Exception as e:
-        print(f"[cancel_appointment_node] DB ERROR: {type(e).__name__}: {e}")
+        logger.info(
+            "Appointment appointment_id=%s successfully cancelled in the database.",
+            appointment_data["id"],
+        )
+    except Exception:
+        logger.exception(
+            "Database cancellation failed for appointment_id=%s.",
+            appointment_data.get("id"),
+        )
         return update_state(
-            state, active_node="cancel_appointment", speech_ai_text=CANCEL_ERROR_RESPONSE, cancellation_complete=True
+            state,
+            active_node="cancel_appointment",
+            speech_ai_text=CANCEL_ERROR_RESPONSE,
+            cancellation_complete=True,
         )
 
     return update_state(
@@ -109,23 +126,40 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
 
 
 async def cancel_appointment_node(state: dict) -> dict:
-    print("[cancel_appointment_node] -----------------------------")
+    """Route the cancellation pipeline to the appropriate stage handler.
 
+    Skips processing when awaiting a fresh user input turn, delegates
+    confirmation handling to :func:`_handle_ask_confirm` when in the
+    ``ask_confirm`` stage, and passes through unrecognised stages unchanged.
+
+    Args:
+        state: The current pipeline state dict. Relevant keys:
+            - cancellation_awaiting_fresh_input (bool | None): When truthy,
+              clears the flag and returns immediately.
+            - speech_user_text (str | None): The latest user utterance.
+            - cancellation_stage (str | None): The current cancellation stage;
+              ``"ask_confirm"`` is the only handled value.
+
+    Returns:
+        An updated state dict with ``active_node`` set to
+        ``"cancel_appointment"``.
+    """
     if state.get("cancellation_awaiting_fresh_input"):
-        print(
-            "[cancel_appointment_node] Awaiting fresh user input — skipping confirmation check."
+        logger.info("Awaiting fresh user input — skipping confirmation check.")
+        return update_state(
+            state,
+            active_node="cancel_appointment",
+            cancellation_awaiting_fresh_input=False,
         )
-        return update_state(state, active_node="cancel_appointment", cancellation_awaiting_fresh_input=False)
 
     user_text = state.get("speech_user_text")
     stage = state.get("cancellation_stage")
 
-    print(f"[cancel_appointment_node] stage={stage}, user_text={user_text}")
-
     if stage == "ask_confirm":
         return await _handle_ask_confirm(state, user_text)
 
-    print(
-        f"[cancel_appointment_node] WARNING: Unhandled stage='{stage}' — passing through."
+    logger.warning(
+        "Unhandled cancellation_stage=%r — passing through unchanged.",
+        stage,
     )
     return {**state, "active_node": "cancel_appointment"}

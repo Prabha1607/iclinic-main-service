@@ -1,14 +1,10 @@
+_FALLBACK_TEXT = "I'm sorry, something went wrong. Please hold while I transfer you."
+
+
 async def tts_node(state: dict) -> dict:
-    print("[tts_node] -----------------------------")
-
-    ai_text: str | None = state.get("speech_ai_text")
-    print("TTS received:", state.get("speech_ai_text"))
-    if not ai_text or not ai_text.strip():
-
-        FALLBACK_TEXT = "I'm sorry, something went wrong. Please hold while I transfer you."
-        ai_text = FALLBACK_TEXT
-
-    ai_text = ai_text.replace("*", "").replace("#", "").strip()
-
+    
+    ai_text: str = state.get("speech_ai_text") or _FALLBACK_TEXT
+    ai_text = ai_text.replace("*", "").replace("#", "").strip() or _FALLBACK_TEXT
     return {**state, "speech_ai_text": ai_text}
+
 

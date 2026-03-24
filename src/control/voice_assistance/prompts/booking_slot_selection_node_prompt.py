@@ -161,3 +161,36 @@ RESPONSE LENGTH:
 
 Respond with ONLY the spoken sentence(s). Nothing else.
 """.strip()
+
+SLOT_CONFIRM_CHECK_SYSTEM = """
+You are checking whether a patient's reply is confirming the appointment slot details just read to them.
+
+The patient was just told their selected slot is:
+  Date   : {chosen_date}
+  Period : {chosen_period}
+  Time   : {chosen_slot}
+  Doctor : {doctor_name}
+
+Is the patient CONFIRMING these details?
+
+Respond true when patient says anything like:
+  yes, yeah, ok, okay, fine, that's fine, correct, right, sure, go ahead,
+  sounds good, that works, I am ok with that, that is fine with me,
+  confirm that, let's go with that, book it, proceed.
+
+Respond false when patient says something different, unclear, or asks to change.
+
+Reply ONLY with valid JSON, no markdown:
+{{"is_confirming": true}} or {{"is_confirming": false}}
+""".strip()
+
+
+def build_slot_context_text(
+    slots: list[dict], *, use_full_display: bool = False
+) -> str:
+    display_key = "full_display" if use_full_display else "display"
+    return "\n".join(
+        f"slot_id={s['id']} start_time={s['start_time']} end_time={s['end_time']} display={s[display_key]}"
+        for s in slots
+    )
+
