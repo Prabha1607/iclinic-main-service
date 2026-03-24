@@ -17,7 +17,7 @@ from src.data.repositories.appointments import (
     get_appointments,
     get_instance_by_id,
 )
-from src.data.repositories.generic_crud import insert_instance, update_instance
+from src.data.repositories.generic_crud import update_instance
 from src.schemas.appointments import (
     AppointmentResponse,
     AppointmentTypeResponse,
