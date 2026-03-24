@@ -1,10 +1,16 @@
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
 
-async def commit_transaction(db: AsyncSession):
+
+async def commit_transaction(db: AsyncSession) -> None:
+    logger.info("Committing transaction")
     try:
         await db.commit()
-
-    except Exception:
+        logger.info("Transaction committed successfully")
+    except Exception as e:
+        logger.error("Transaction failed — rolling back", extra={"error": str(e)})
         await db.rollback()
         raise

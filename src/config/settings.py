@@ -21,7 +21,6 @@ class Settings(BaseSettings):
     TWILIO_AUTH: str
     TWILIO_NUMBER: str
     MY_PHONE: str
-    TWIML_BIN_URL: str
     PUBLIC_BASE_URL: str
 
     VOICE: str

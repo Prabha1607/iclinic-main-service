@@ -5,7 +5,7 @@ if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from src.control.voice_assistance.graph import build_response_graph
-from src.control.voice_assistance.utils import fresh_state
+from src.control.voice_assistance.utils.state_utils import fresh_state
 from src.core.services.appointment_types import get_appointment_types
 from src.data.clients.postgres_client import AsyncSessionLocal
 

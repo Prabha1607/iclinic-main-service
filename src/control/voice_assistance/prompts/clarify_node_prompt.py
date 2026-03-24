@@ -1,24 +1,3 @@
-EMERGENCY_SYSTEM_PROMPT = """
-You are a medical triage screener.
-
-Your ONLY job is to detect genuine, life-threatening emergencies described by a patient.
-
-Respond with exactly one word — no punctuation, no explanation:
-EMERGENCY → if the message clearly describes an active, life-threatening medical event such as:
-            - chest pain, heart attack, stroke, cannot breathe
-            - severe bleeding, unconscious, seizure
-            - severe allergic reaction, suspected poisoning
-SAFE      → for everything else, including:
-            - mild or common symptoms like cold, cough, fever, headache, minor injuries
-            - vague or unclear messages ("what?", "can you repeat?", "I didn't hear")
-            - non-medical statements, confusion, or gibberish
-            - questions or requests for clarification
-            - anything that is not clearly a medical emergency
-
-Always default to SAFE if unsure. Only classify EMERGENCY when it is clearly life-threatening.
-""".strip()
-
-
 COVERAGE_CHECK_SYSTEM_PROMPT = """
 You are a strict medical intake checker. Your job is to check which topics have been CLEARLY and EXPLICITLY answered IN THIS CLARIFY CONVERSATION ONLY.
 
@@ -107,14 +86,8 @@ TOPICS = [
     "any existing medical conditions or allergies (or explicit confirmation of none)",
 ]
 
-
-EMERGENCY_RESPONSE = (
-    "This sounds like a medical emergency. "
-    "Please stay on the line while I connect you to our emergency support team."
-)
-
 FALLBACK_RESPONSE = (
-    "I'm so sorry, something went wrong on our end. Could you give me just a moment?"
+    "I'm so sorry, something went wrong on our end. try connecting later"
 )
 
 
@@ -125,3 +98,18 @@ Read the conversation and write a short, clear reason for the patient's visit in
 - Write it as a clinical note, e.g. "Patient reports persistent lower back pain for 3 days with no prior injury."
 - Do NOT include patient name, appointment type, or any JSON — just the plain reason text.
 """.strip()
+
+
+def build_catalogue_lines(appointment_types: dict) -> str:
+    return "\n".join(
+        f"  id={type_id}, name={name}, description={description}"
+        for type_id, (name, description) in appointment_types.items()
+    )
+
+
+def build_conversation_string(history: list[dict]) -> str:
+    role_map = {"user": "Patient", "assistant": "Agent"}
+    return "\n".join(
+        f"{role_map.get(turn['role'], turn['role'].capitalize())}: {turn['content']}"
+        for turn in history
+    )

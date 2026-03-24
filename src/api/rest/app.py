@@ -1,8 +1,6 @@
 from contextlib import asynccontextmanager
-
 from fastapi import APIRouter, FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
-
 from src.api.middleware.auth import AuthorizationMiddleware
 from src.api.middleware.cors import add_cors_middleware
 from src.api.middleware.logging import logging_middleware, setup_logging
@@ -24,7 +22,6 @@ async def lifespan(app: FastAPI):
     # await init_db()
     # await seed_available_slots()
     yield
-
 
 app = FastAPI(lifespan=lifespan, title="Main Service", version="1.0.0")
 

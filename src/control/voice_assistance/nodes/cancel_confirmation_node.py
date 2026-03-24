@@ -1,9 +1,14 @@
+import logging
+
 from fastapi_mail import FastMail, MessageSchema
 
 from src.control.voice_assistance.config import conf
 
+logger = logging.getLogger(__name__)
+
 
 async def _send_cancellation_email(to_email: str, body: str) -> None:
+    
     message = MessageSchema(
         subject="Your Appointment has been Cancelled",
         recipients=[to_email],
@@ -15,7 +20,8 @@ async def _send_cancellation_email(to_email: str, body: str) -> None:
 
 
 def _build_cancellation_email_body(state: dict) -> str:
-    appointment = state.get("cancellation_appointment", {})
+    
+    appointment = state.get("cancellation_appointment") or {}
     patient_name = state.get("identity_user_name", "Patient")
     appointment_type = appointment.get("type_name", "your appointment")
     date = appointment.get("date", "N/A")
@@ -48,19 +54,39 @@ def _build_cancellation_email_body(state: dict) -> str:
 
 
 async def cancel_confirmation_node(state: dict) -> dict:
-    print("[cancel_confirmation_node] -----------------------------")
+    """Send an appointment cancellation confirmation email after a successful cancellation.
 
+    Skips silently if the cancellation has not been confirmed or if no recipient
+    email is present in state. Email delivery failures are logged but do not raise,
+    ensuring the pipeline continues regardless of mail transport issues.
+
+    Args:
+        state: The current pipeline state dict. Relevant keys:
+            - cancellation_confirmed (bool | None): Must be truthy to proceed.
+            - identity_user_email (str | None): Recipient address; absence
+              short-circuits the node.
+            - All keys consumed by :func:`_build_cancellation_email_body`.
+
+    Returns:
+        The unchanged state dict.
+    """
     if not state.get("cancellation_confirmed"):
+        logger.info("Skipping cancel_confirmation_node: cancellation_confirmed is not set.")
         return state
 
     email = state.get("identity_user_email")
     if not email:
+        logger.warning(
+            "Skipping cancellation email: no identity_user_email found in state.",
+        )
         return state
 
     try:
-        body = _build_cancellation_email_body(state)
-        await _send_cancellation_email(email, body)
-    except Exception as e:
-        print(f"[cancel_confirmation_node] EMAIL ERROR: {type(e).__name__}: {e}")
+        await _send_cancellation_email(email, _build_cancellation_email_body(state))
+    except Exception:
+        logger.exception(
+            "Failed to send cancellation email to %s.",
+            email,
+        )
 
     return state

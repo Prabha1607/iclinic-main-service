@@ -1,10 +1,8 @@
 import re
-
 from pydantic import BaseModel, field_validator
 
-
 class PhoneRequest(BaseModel):
-    phone_number: str
+    phone_number: str   
 
 
 class OTPVerifyRequest(BaseModel):
@@ -17,3 +15,4 @@ class OTPVerifyRequest(BaseModel):
         if not re.fullmatch(r"\d{6}", v):
             raise ValueError("OTP must be exactly 6 digits")
         return v
+
