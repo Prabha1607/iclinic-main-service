@@ -1,5 +1,15 @@
-def route_after_stt(state: dict) -> str:
+def route_after_query_intent(state: dict) -> str:
     service_type = state.get("service_type")
+
+    forced_node = state.get("active_node")
+    if forced_node in {
+        "booking_slot_selection",
+        "doctor_selection",
+        "pre_confirmation",
+        "identity_confirmation",
+        "clarify",
+    }:
+        return forced_node
 
     if state.get("is_out_of_context"):
         return "general_assistance"
@@ -8,42 +18,12 @@ def route_after_stt(state: dict) -> str:
         return "service_intent"
 
     if service_type == "booking":
-        if (
-            state.get("booking_slot_selection_completed")
-            and state.get("slot_stage") == "ready_to_book"
-            and not state.get("pre_confirmation_completed")
-            and not state.get("booking_appointment_completed")
-        ):
-            return "pre_confirmation"
-
-        if (
-            state.get("user_change_request")
-            and not state.get("doctor_selection_completed")
-        ):
-            return "doctor_selection"
-
-        if (
-            state.get("user_change_request")
-            and state.get("doctor_selection_completed")
-            and not state.get("booking_slot_selection_completed")
-            and state.get("slot_stage") in (None, "ask_date", "ask_alternate_date")
-        ):
+        if state.get("user_change_request"):
+            if not state.get("doctor_selection_completed"):
+                return "doctor_selection"
+            if not state.get("booking_slot_selection_completed"):
+                return "booking_slot_selection"
             return "booking_slot_selection"
-
-        if (
-            state.get("user_change_request")
-            and state.get("doctor_selection_completed")
-            and not state.get("booking_slot_selection_completed")
-            and state.get("slot_stage") == "ask_slot"
-        ):
-            return "booking_slot_selection"
-
-        if (
-            state.get("doctor_selection_completed")
-            and not state.get("booking_slot_selection_completed")
-        ):
-            return "booking_slot_selection"
-
         return _get_booking_next_step(state)
 
     if service_type == "cancellation":
@@ -72,19 +52,18 @@ def _get_booking_next_step(state: dict) -> str:
     return "tts"
 
 
-def route_after_cancellation_slot_selection(state: dict) -> str:
-    if state.get("cancellation_complete"):
-        return "tts"
-    if state.get("cancellation_stage") == "ask_confirm":
-        return "cancel_appointment"
-    return "tts"
-
-
 def route_after_pre_confirmation(state: dict) -> str:
     if state.get("active_node") == "booking_slot_selection":
         return "booking_slot_selection"
+    if state.get("active_node") == "doctor_selection":
+        return "doctor_selection"
+
     if state.get("pre_confirmation_completed"):
         return "book_appointment"
+
+    if state.get("booking_awaiting_confirmation"):
+        return "tts"
+
     return "tts"
 
 
@@ -127,4 +106,12 @@ def route_after_booking_slot_selection(state: dict) -> str:
         and state.get("slot_stage") == "ready_to_book"
     ):
         return "pre_confirmation"
+    return "tts"
+
+
+def route_after_cancellation_slot_selection(state: dict) -> str:
+    if state.get("cancellation_complete"):
+        return "tts"
+    if state.get("cancellation_stage") == "ask_confirm":
+        return "cancel_appointment"
     return "tts"

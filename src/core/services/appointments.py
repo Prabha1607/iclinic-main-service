@@ -8,10 +8,17 @@ from src.data.repositories.appointments import (
     get_slot_for_update,
     mark_slot_booked,
 )
+import logging
+from datetime import datetime, timezone
+from src.data.repositories.appointments import (
+    mark_completed_appointments_repo,
+)
+logger = logging.getLogger(__name__)
 from src.control.voice_assistance.config import conf
 from src.data.clients.auth_client import get_full_providers
 from fastapi import HTTPException, status
 from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
+from src.data.models.postgres.appointment import Appointment
 from src.data.repositories.appointments import (
     get_appointment_by_id,
     get_appointments,
@@ -279,6 +286,8 @@ async def get_appointment_by_id_service(
     }
 
 
+
+
 async def get_all_appointments_service(
     db: AsyncSession,
     token: str,
@@ -304,6 +313,21 @@ async def get_all_appointments_service(
             "is_active": is_active,
         },
     )
+
+    try:
+        if page == 1:
+            now = datetime.now(timezone.utc)
+            updated = await mark_completed_appointments_repo(db, now)
+            if updated:
+                logger.info(
+                    "Auto-completed appointments",
+                    extra={"updated_count": updated}
+                )
+    except Exception as e:
+        logger.error(
+            "Failed to auto-complete appointments",
+            extra={"error": str(e)}
+        )
 
     try:
         appointments = await get_appointments(
@@ -397,4 +421,5 @@ async def get_all_appointments_service(
         "Appointments fetched and mapped successfully",
         extra={"count": len(result), "page": page},
     )
+
     return result

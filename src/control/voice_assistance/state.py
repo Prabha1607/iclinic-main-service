@@ -66,6 +66,7 @@ class VoiceState(TypedDict):
     slot_chosen_date: str | None
     slot_chosen_period: str | None
     slot_available_list: list[dict] | None
+    slot_time_hint: str | None
     slot_selected: dict | None
     slot_selected_start_time: str | None
     slot_selected_end_time: str | None

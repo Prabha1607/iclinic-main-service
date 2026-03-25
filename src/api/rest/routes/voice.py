@@ -146,7 +146,7 @@ async def make_call(
     try:
         result = await call_graph.ainvoke(initial_state)
     except Exception as e:
-        logger.error("Call graph invocation failed", extra={"to_number": to_number, "error": str(e)})
+        logger.error("Response graph invocation failed", exc_info=True, extra={"call_sid": call_sid, "error": str(e)})
         return {"status": "error", "detail": "Failed to place call"}
 
     if result.get("speech_error"):

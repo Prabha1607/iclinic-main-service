@@ -16,12 +16,10 @@ from src.data.repositories.generic_crud import insert_instance
 
 logger = logging.getLogger(__name__)
 
-
 async def extract_appointment_context(conversation_history: list | str) -> dict:
-    
     history_text = build_history_text(conversation_history)
     try:
-        return invokeLLM_json(
+        return await invokeLLM_json(          
             system_prompt=EXTRACT_CONTEXT_PROMPT,
             user_prompt=f"Conversation:\n{history_text}",
         )
@@ -32,7 +30,6 @@ async def extract_appointment_context(conversation_history: list | str) -> dict:
             exc_info=True,
         )
         return DEFAULT_CONTEXT
-
 
 async def book_appointment_node(state: dict) -> dict:
     """Book an appointment for a patient with a confirmed doctor and slot.

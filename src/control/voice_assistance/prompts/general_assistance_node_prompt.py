@@ -26,7 +26,7 @@ def build_general_assistance_prompt(state: dict) -> str:
         ("Symptom Clarification", state.get("clarify_conversation_history")),
         ("Doctor Selection", state.get("doctor_selection_history")),
         ("Slot Selection", state.get("slot_selection_history")),
-        ("Mapping History"),state.get("mapping_history")
+        ("Mapping History",state.get("mapping_history"))
     ]
 
     context_lines = []

@@ -1,11 +1,12 @@
 import logging
 from datetime import date
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
+from datetime import datetime, timezone
+from sqlalchemy import update, and_, or_
 from src.data.models.postgres.appointment import Appointment
+from src.data.models.postgres.ENUM import AppointmentStatus
 from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import AppointmentStatus
 
@@ -179,4 +180,40 @@ async def get_instance_by_id(db: AsyncSession, id: int) -> Appointment | None:
         )
         raise
 
+
+async def mark_completed_appointments_repo(
+    db: AsyncSession,
+    now: datetime = None,
+) -> int:
     
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    now_naive = now.replace(tzinfo=None)
+    now_date = now_naive.date()
+    now_time = now_naive.time()
+
+    stmt = (
+        update(Appointment)
+        .where(
+            and_(
+                Appointment.status == AppointmentStatus.SCHEDULED,
+                Appointment.is_active == True,
+                or_(
+                    Appointment.scheduled_date < now_date,
+                    and_(
+                        Appointment.scheduled_date == now_date,
+                        Appointment.scheduled_end_time < now_time,
+                    ),
+                ),
+            )
+        )
+        .values(status=AppointmentStatus.COMPLETED)
+        .execution_options(synchronize_session=False)
+    )
+
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return result.rowcount or 0
+

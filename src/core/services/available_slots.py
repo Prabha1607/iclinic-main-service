@@ -7,7 +7,6 @@ from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import SlotStatus
 from src.data.repositories.available_slots import (
     create_slots_for_provider,
-    get_provider_slots_repo,
     get_slots_by_provider,
 )
 from src.data.repositories.generic_crud import update_instance
