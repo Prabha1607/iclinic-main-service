@@ -33,7 +33,6 @@ async def ensure_table() -> None:
 
 
 async def get_session(call_sid: str) -> dict | None:
-    await ensure_table()
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -53,7 +52,6 @@ async def get_session(call_sid: str) -> dict | None:
 
 
 async def set_session(call_sid: str, state: dict) -> None:
-    await ensure_table()
     try:
         serialized = json.dumps(state, default=str)
         async with AsyncSessionLocal() as db:
@@ -77,7 +75,6 @@ async def set_session(call_sid: str, state: dict) -> None:
         logger.error("[session_store] set_session error: %s", repr(e))
 
 async def delete_session(call_sid: str) -> None:
-    await ensure_table()
     try:
         async with AsyncSessionLocal() as db:
             await db.execute(
@@ -91,7 +88,6 @@ async def delete_session(call_sid: str) -> None:
 
 
 async def purge_expired() -> int:
-    await ensure_table()
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(

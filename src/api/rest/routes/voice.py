@@ -1,15 +1,12 @@
 import logging
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from twilio.twiml.voice_response import VoiceResponse
-
 from src.api.rest.dependencies import get_current_user, get_db
 from src.config.settings import settings
 from src.control.voice_assistance.graph import build_call_graph, build_response_graph
 from src.control.voice_assistance.session_store import (
     delete_session,
-    ensure_table,
     get_session,
     set_session,
 )
@@ -32,11 +29,6 @@ TIMEOUT_TEXT = "I still could not hear you. Thank you for calling. Goodbye."
 _startup_done = False
 
 
-async def _ensure_startup() -> None:
-    global _startup_done
-    if not _startup_done:
-        await ensure_table()
-        _startup_done = True
 
 
 def _build_appointment_types(appointment_types: list) -> dict:
@@ -110,8 +102,6 @@ async def make_call(
         HTTPException 400: When the Authorization header is missing.
         HTTPException 500: When appointment-type retrieval fails unexpectedly.
     """
-    await _ensure_startup()
-
     try:
         appointment_types = await get_appointment_types(db)
         if not appointment_types:
@@ -187,7 +177,6 @@ async def voice_response(request: Request):
         Response: An ``application/xml`` TwiML response that either gathers
                   further speech, dials an emergency number, or hangs up.
     """
-    await _ensure_startup()
 
     try:
         form = await request.form()

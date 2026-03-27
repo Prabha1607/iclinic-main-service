@@ -1,10 +1,9 @@
 import logging
-from src.control.voice_assistance.prompts.stt_node_prompt import build_intent_system, build_out_of_context_prompt
+from src.control.voice_assistance.prompts.query_intent_node_prompt import build_intent_system, build_out_of_context_prompt
 from src.control.voice_assistance.utils.llm_utils import invokeLLM_json
 from src.control.voice_assistance.utils.state_utils import reset_from_date, reset_from_doctor, reset_from_slot
 
 logger = logging.getLogger(__name__)
-
 
 async def query_intent_node(state: dict) -> dict:
     

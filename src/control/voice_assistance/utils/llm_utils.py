@@ -71,6 +71,7 @@ async def llm_extract(system: str, human: str) -> dict:
 async def is_emergency(text: str, system_prompt: str) -> bool:
     try:
         response = await invokeLLM(user_prompt=text, system_prompt=system_prompt)
-        return (response or "").strip().upper() == "EMERGENCY"
+        return (response or "").strip().upper() == "YES"  
     except Exception:
         return False
+ 

@@ -14,7 +14,10 @@ from src.api.rest.routes import (
 )
 from src.data.clients.postgres_client import init_db
 from src.data.seeds.seed_available_slots import seed_available_slots
-
+from src.core.exceptions.base import AppError
+from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,3 +42,13 @@ api_router.include_router(router=twilio_verify.router)
 api_router.include_router(router=health.router)
 
 app.include_router(router=api_router)
+
+@app.exception_handler(AppError)
+async def app_error_handler(request, exc: AppError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+Instrumentator().instrument(app).expose(app)
+try:
+    FastAPIInstrumentor.instrument_app(app)
+except Exception:
+    pass

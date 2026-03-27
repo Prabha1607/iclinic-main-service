@@ -21,6 +21,9 @@ RUN uv pip install --system .
 
 COPY . .
 
+RUN groupadd -r appuser && useradd -r -g appuser appuser && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8080
 
 CMD ["sh", "-c", "uvicorn src.api.rest.app:app --host 0.0.0.0 --port ${PORT:-8080}"]

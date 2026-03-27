@@ -10,7 +10,6 @@ from src.control.voice_assistance.routes import (
     route_after_booking_slot_selection,
     route_after_query_intent,          
 )
-
 from .nodes.book_appointment_node import book_appointment_node
 from .nodes.booking_confirmation_node import booking_confirmation_node
 from .nodes.booking_slot_selection_node import booking_slot_selection_node
@@ -139,7 +138,7 @@ def build_response_graph():
         },
     )
 
-    # ── fixed edges ────────────────────────────────────────────────────────
+    # ── edges ────────────────────────────────────────────────────────
     workflow.add_edge("book_appointment", "booking_confirmation")
     workflow.add_edge("booking_confirmation", "tts")
     workflow.add_edge("cancel_appointment", "cancel_confirmation")

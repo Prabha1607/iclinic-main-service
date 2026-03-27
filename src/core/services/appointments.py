@@ -286,8 +286,6 @@ async def get_appointment_by_id_service(
     }
 
 
-
-
 async def get_all_appointments_service(
     db: AsyncSession,
     token: str,

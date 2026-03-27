@@ -44,20 +44,19 @@ class VoiceState(TypedDict):
     mapping_appointment_type_completed: bool | None
     mapping_appointment_type_id: int | None
     mapping_history: list[dict[str, str]] | None
-
     appointment_types: dict[int, list[str]] | None
     appointments_list: list[dict] | None
 
     # ── Doctor selection ──────────────────────────────────────────────────────
-    doctor_selection_history: list[dict[str, str]] | None   # recent raw turns (trimmed)
-    doctor_conversation_summary: str | None                  # LLM-compressed earlier turns
-    doctor_change_log: list[dict] | None                     # [{from, to, reason}] per switch
-    doctor_list: list[dict] | None                           # available doctors shown to patient
+    doctor_selection_history: list[dict[str, str]] | None  
+    doctor_conversation_summary: str | None                 
+    doctor_change_log: list[dict] | None                    
+    doctor_list: list[dict] | None                          
     doctor_selection_pending: bool | None
     doctor_selection_completed: bool | None
     doctor_confirmed_id: int | None
     doctor_confirmed_name: str | None
-    doctors_cache: dict[str, list[dict]] | None              # keyed by str(appointment_type_id)
+    doctors_cache: dict[str, list[dict]] | None             
 
     # ── Booking slot selection ────────────────────────────────────────────────
     booking_slot_selection_history: list[dict[str, str]] | None
@@ -86,21 +85,21 @@ class VoiceState(TypedDict):
     booking_context_snapshot: dict | None
 
     # ── Cancellation ─────────────────────────────────────────────────────────
-    cancellation_slot_selection_history: list[dict[str, str]] | None  # full turn log
-    cancellation_stage: str | None          # None | "ask_date" | "ask_slot" | "ask_confirm"
-    cancellation_appointments_list: list[dict] | None   # all fetched upcoming appointments
-    cancellation_slot_date: str | None      # date the patient picked for cancellation
-    cancellation_slot_start_time: str | None            # start time of chosen slot
-    cancellation_slot_end_time: str | None              # end time of chosen slot
-    cancellation_slot_type_name: str | None             # appointment type name of chosen slot
-    cancellation_slot_reason: str | None                # reason_for_visit of chosen slot
-    cancellation_appointment_id: int | None             # DB id of the appointment to cancel
-    cancellation_appointment: dict | None               # full chosen appointment dict
+    cancellation_slot_selection_history: list[dict[str, str]] | None  
+    cancellation_stage: str | None          
+    cancellation_appointments_list: list[dict] | None   
+    cancellation_slot_date: str | None     
+    cancellation_slot_start_time: str | None           
+    cancellation_slot_end_time: str | None             
+    cancellation_slot_type_name: str | None            
+    cancellation_slot_reason: str | None                
+    cancellation_appointment_id: int | None             
+    cancellation_appointment: dict | None               
     cancellation_complete: bool | None
     cancellation_awaiting_fresh_input: bool | None
     cancellation_confirmed: bool | None
 
-    # ── Shared / misc ─────────────────────────────────────────────────────────
+    # ── Shared ─────────────────────────────────────────────────────────
     user_change_request: str | None
     explained_topics: set | None
 
