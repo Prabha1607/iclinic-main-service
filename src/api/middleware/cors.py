@@ -1,7 +1,26 @@
+"""
+CORS middleware configuration for the iClinic REST API.
+
+Registers the FastAPI CORSMiddleware with the allowed origins, methods,
+and headers required for both local development and Cloud Run deployments.
+"""
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 
-def add_cors_middleware(app):
+def add_cors_middleware(app: FastAPI) -> None:
+    """
+    Register CORS middleware on the given FastAPI application instance.
+
+    Allows credentialed cross-origin requests from local development servers
+    and production Cloud Run frontends, with explicit method and header rules.
+
+    Args:
+        app: The FastAPI application instance to attach the middleware to.
+
+    Returns:
+        None
+    """
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[

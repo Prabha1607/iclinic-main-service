@@ -1,3 +1,10 @@
+"""
+Logging configuration and request/response logging middleware for the iClinic REST API.
+
+Provides ``setup_logging`` to initialise console and JSON file handlers, and
+``logging_middleware`` to capture per-request metadata including bodies, status
+codes, and processing time.
+"""
 import json
 import logging
 import sys
@@ -8,7 +15,16 @@ from fastapi.responses import Response
 from pythonjsonlogger import jsonlogger
 
 
-def setup_logging():
+def setup_logging() -> None:
+    """
+    Configure the root logger with console and JSON file handlers.
+
+    Clears any existing handlers before attaching a plain-text StreamHandler
+    writing to stdout and a JSON-formatted FileHandler writing to ``app.log``.
+
+    Returns:
+        None
+    """
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
@@ -34,7 +50,6 @@ def setup_logging():
 
 logger = logging.getLogger(__name__)
 
-
 _SKIP_BODY_PATHS = {"/api/v1/voice/audio", "/health", "/metrics"}
 
 
@@ -46,7 +61,23 @@ def _try_parse_json(raw: str) -> str | dict:
         return raw
 
 
-async def logging_middleware(request: Request, call_next):
+async def logging_middleware(request: Request, call_next) -> Response:
+    """
+    Log incoming request and outgoing response metadata for every HTTP call.
+
+    Captures the request path, method, and body (where applicable), invokes
+    the next handler, then logs the response status code, body, and total
+    processing time. Body capture is skipped for paths listed in
+    ``_SKIP_BODY_PATHS`` to avoid reading large or binary payloads.
+
+    Args:
+        request:   The incoming HTTP request.
+        call_next: Callable that forwards the request to the next handler.
+
+    Returns:
+        Response: The original downstream response, reconstructed with the
+        captured body when body logging is enabled for the path.
+    """
     start = time.time()
     path = request.url.path
 

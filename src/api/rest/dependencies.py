@@ -1,3 +1,9 @@
+"""
+FastAPI dependency providers for the iClinic main service.
+
+Supplies reusable dependencies for database session management and
+authenticated user resolution, consumed via FastAPI's ``Depends`` mechanism.
+"""
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -5,7 +11,20 @@ from src.config.jwt_handler import verify_access_token
 from src.data.clients.postgres_client import AsyncSessionLocal
 
 
-async def get_db():
+async def get_db() -> AsyncSession:
+    """
+    Provide an async SQLAlchemy session for the duration of a request.
+
+    Yields a session from the connection pool and ensures it is closed
+    after the request completes, whether or not an exception occurred.
+
+    Yields:
+        AsyncSession: An active async database session.
+
+    Raises:
+        Exception: Re-raises any exception that occurs during the request
+                   after logging it to stdout.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -13,7 +32,27 @@ async def get_db():
             print("DB ERROR:", e)
             raise
 
-async def get_current_user(request: Request):
+
+async def get_current_user(request: Request) -> dict:
+    """
+    Resolve and validate the authenticated user from the incoming request.
+
+    Extracts the Bearer token from the Authorization header or falls back
+    to the ``access_token`` cookie. Verifies the JWT and returns the
+    decoded user payload.
+
+    Args:
+        request: The incoming HTTP request used to extract the token.
+
+    Returns:
+        dict: Authenticated user data containing ``id``, ``email``,
+        ``phone_number``, ``name``, and ``role_id``.
+
+    Raises:
+        HTTPException 401: When the token is missing, invalid, or expired.
+        HTTPException 500: When an unexpected error occurs during
+                           token verification.
+    """
     try:
         credential = request.headers.get("Authorization")
         if credential:
@@ -40,4 +79,3 @@ async def get_current_user(request: Request):
         raise
     except Exception:
         raise HTTPException(status_code=500, detail="Authentication failed")
-
