@@ -1,14 +1,13 @@
-import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.rest.dependencies import get_db
 from src.core.services.appointment_types import get_appointment_types,create_appointment_type_service, update_appointment_type_service
 from src.schemas.appointment_types import AppointmentTypeResponse,AppointmentTypeCreate, AppointmentTypeUpdate
+import logging
 
 router = APIRouter(prefix="/appointment-types", tags=["Appointment Types"])
 
 logger = logging.getLogger(__name__)
-
 
 @router.get("", response_model=list[AppointmentTypeResponse])
 async def fetch_appointment_types(

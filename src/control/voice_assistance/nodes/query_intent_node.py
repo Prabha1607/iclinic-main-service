@@ -23,6 +23,7 @@ async def query_intent_node(state: dict) -> dict:
         "speech_user_text": cleaned,
         "user_change_request": None,
         "is_out_of_context": False,
+        "speak_only": False
     }
 
     try:
@@ -46,16 +47,13 @@ async def query_intent_node(state: dict) -> dict:
         intent = parsed.get("intent", "none")
         logger.info(f"Detected intent (pre_confirmation): {intent}")
 
-        if intent == "change_doctor" and state.get("doctor_confirmed_id"):
-            logger.info("Doctor change detected — resetting from doctor")
+        if intent == "change_doctor":
             return reset_from_doctor(base_state, cleaned)
 
-        if intent == "change_date" and state.get("slot_chosen_date"):
-            logger.info("Date change detected — resetting from date")
+        if intent == "change_date":
             return reset_from_date(base_state, cleaned)
 
         if intent == "change_slot":
-            logger.info("Slot change detected — resetting from slot")
             return reset_from_slot(base_state, cleaned)
 
         return base_state
@@ -84,16 +82,31 @@ async def query_intent_node(state: dict) -> dict:
     intent = parsed.get("intent", "none")
     logger.info(f"Detected intent: {intent}")
 
-    if intent == "change_doctor" and state.get("doctor_confirmed_id"):
-        logger.info("Doctor change detected")
+    if intent == "change_doctor":
+        if not state.get("doctor_confirmed_id"):
+            logger.info("Doctor change requested but no doctor selected yet")
+            if active_node == "doctor_selection":
+                return base_state
+            return {**base_state, "speech_ai_text": "You haven't selected a doctor yet — let's go ahead and pick one now.", "speak_only": True}
+        logger.info("Doctor change detected — resetting from doctor")
         return reset_from_doctor(base_state, cleaned)
 
-    if intent == "change_date" and state.get("slot_chosen_date"):
-        logger.info("Date change detected")
+    if intent == "change_date":
+        if not state.get("slot_chosen_date"):
+            logger.info("Date change requested but no date selected yet")
+            if active_node == "booking_slot_selection":
+                return base_state
+            return {**base_state, "speech_ai_text": "No date has been chosen yet — let's continue and pick one.", "speak_only": True}
+        logger.info("Date change detected — resetting from date")
         return reset_from_date(base_state, cleaned)
 
-    if intent == "change_slot" and state.get("slot_selected"):
-        logger.info("Slot change detected")
+    if intent == "change_slot":
+        if not state.get("slot_selected"):
+            logger.info("Time change requested but no slot selected yet")
+            if active_node == "booking_slot_selection":
+                return base_state
+            return {**base_state, "speech_ai_text": "No time has been chosen yet — let's continue and pick one.", "speak_only": True}
+        logger.info("Time change detected — resetting from slot")
         return reset_from_slot(base_state, cleaned)
 
     logger.info("No change detected — continuing flow")

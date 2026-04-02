@@ -108,10 +108,6 @@ def _period_from_time(time_str: str) -> str:
 
 
 def _normalise_time(raw: str | None) -> str | None:
-    """
-    Convert any clean time expression to HH:MM 24h.
-    Returns None if it cannot be parsed — caller should then try LLM.
-    """
     if not raw:
         return None
     raw = str(raw).strip().lower()
@@ -145,10 +141,6 @@ def _normalise_time(raw: str | None) -> str | None:
 
 
 async def _parse_time_with_llm(raw_text: str) -> str | None:
-    """
-    LLM fallback for garbled STT: "1302", "half past one", "ek baj ke tees".
-    Returns HH:MM 24h or None.
-    """
     system = """CRITICAL: Respond with ONLY a valid JSON object.
 Your response must start with { and end with }.
 
@@ -195,10 +187,6 @@ async def _extract_time_hint(raw_text: str) -> str | None:
 
 
 def _find_slot_by_time(slots: list[dict], time_str: str) -> dict | None:
-    """
-    Exact match on HH:MM, then fuzzy within 15 min.
-    Returns None if nothing is close enough.
-    """
     if not time_str or not slots:
         return None
     normalised = _normalise_time(time_str)
@@ -261,22 +249,34 @@ async def _call_ask_date(
     available_dates_str: str,
     history: list[dict],
 ) -> dict | None:
+    today_str = today_ist().isoformat()
+
     system = f"""CRITICAL: Respond with ONLY a valid JSON object. No prose before or after.
 Your response must start with {{ and end with }}.
 
 You are a clinic receptionist on a phone call helping a patient choose an appointment date with {doctor_name}.
 
-Available dates: {available_dates_str}
+Today's date    : {today_str}
+Available dates : {available_dates_str}
 
 YOUR JOB:
 1. Read the patient's latest message.
-2. If they mentioned a date that IS in the available list → confirm it and output as "date".
-3. If they mentioned a date NOT in the list → say it's unavailable, suggest the closest 3 options.
-4. If no date mentioned yet → list the available dates and ask which they prefer.
-5. Also check: did the patient mention a specific TIME (e.g. "2 pm", "1:30")?
+2. If they mentioned a date:
+   a. First check — is that date in the PAST (before today {today_str})?
+      → If YES: tell them that date has already passed. Do NOT silently pick a future date.
+        Suggest the closest 2–3 dates from the available list and ask which they prefer.
+        Output "date" as null.
+   b. If the date is today or future but NOT in the available list →
+      say it's not available, suggest the closest 2–3 options from the available list.
+      Output "date" as null.
+   c. If the date IS in the available list → confirm it. Output as "date".
+3. If no date mentioned yet → list the available dates and ask which they prefer.
+4. Also check: did the patient mention a specific TIME (e.g. "2 pm", "1:30")?
    If yes → output it verbatim as "time_hint".
 
 RULES:
+- NEVER assume the patient meant a future month if they said a past date. Always tell them it has passed.
+- NEVER silently pick a different date without telling the patient.
 - Never ask without listing the available dates.
 - You are mid-conversation. Never say Hello, Hi, or Welcome.
 - Keep response to 1–3 sentences. Natural phone speech. No bullet points.
@@ -297,26 +297,58 @@ OUTPUT FORMAT:
 async def _call_ask_period(
     doctor_name: str,
     confirmed_date_display: str,
+    confirmed_date_iso: str,
     available_periods: list[str],
     history: list[dict],
 ) -> dict | None:
+    today    = today_ist()
+    now_time = now_time_ist()
+    is_today = (confirmed_date_iso == today.isoformat())
+
+    past_period_note = ""
+    if is_today:
+        h = now_time.hour
+        past = []
+        if h >= 12:
+            past.append("morning")
+        if h >= 17:
+            past.append("afternoon")
+        if past:
+            past_period_note = (
+                f"\nCurrent time is {now_time.strftime('%H:%M')} IST. "
+                f"These periods have already passed today: {', '.join(past)}. "
+                f"If the patient asks for a past period, tell them it has passed "
+                f"and suggest only from the available list."
+            )
+
     periods_str = ", ".join(available_periods) if available_periods else "none"
+
     system = f"""CRITICAL: Respond with ONLY a valid JSON object. No prose before or after.
 Your response must start with {{ and end with }}.
 
 You are a clinic receptionist on a phone call. The patient has chosen {confirmed_date_display} with {doctor_name}.
 
-Available periods on that date: {periods_str}
+Available periods on that date : {periods_str}{past_period_note}
 
 YOUR JOB:
 1. Read the patient's latest message.
-2. If they chose or confirmed a period → output it.
-3. If they gave a specific time (e.g. "2 pm", "1:30") → output it as "time_hint" (raw string)
-   AND infer the period: 00:00–11:59 → morning | 12:00–16:59 → afternoon | 17:00–23:59 → evening
-4. If no period yet → list the available periods and ask.
+2. If they mentioned a period:
+   a. If it's a past period (only possible if the date is today) →
+      tell them that period has already passed. Suggest only from the available list.
+      Output "period" as null.
+   b. If it's NOT in the available list →
+      say it's not available, suggest from the available list.
+      Output "period" as null.
+   c. If it IS in the available list → confirm it. Output as "period".
+3. If they gave a specific time directly → infer the period:
+   00:00–11:59 → morning | 12:00–16:59 → afternoon | 17:00–23:59 → evening.
+   If that inferred period is NOT in the available list →
+   tell them it's unavailable or has passed, suggest from the available list.
+   Output "period" as null and "time_hint" as null.
+4. If no period mentioned yet → list the available periods and ask.
 
 RULES:
-- If the patient gave a time, infer the period — do NOT ask for it separately.
+- NEVER silently skip a past or unavailable period and pick another. Always tell the patient first.
 - Never ask without listing the options.
 - You are mid-conversation. Never say Hello, Hi, or Welcome.
 - Keep response to 1–3 sentences. Natural phone speech.
@@ -335,16 +367,23 @@ OUTPUT FORMAT:
 async def _call_ask_time(
     doctor_name: str,
     confirmed_date_display: str,
+    confirmed_date_iso: str,
     confirmed_period: str,
     available_slots: list[dict],
     history: list[dict],
 ) -> dict | None:
-    """
-    Gives the LLM ALL slots for the date (with period labels).
-    The LLM can therefore handle period switches naturally.
-    It also outputs a raw time_hint so our code can do a second-pass
-    parse if the LLM couldn't match the slot itself.
-    """
+    today    = today_ist()
+    now_time = now_time_ist()
+    is_today = (confirmed_date_iso == today.isoformat())
+
+    current_time_note = ""
+    if is_today:
+        current_time_note = (
+            f"\nCurrent time is {now_time.strftime('%H:%M')} IST. "
+            f"If the patient asks for a time earlier than {now_time.strftime('%H:%M')} today, "
+            f"tell them that time has already passed. NEVER silently pick a later time."
+        )
+
     slot_lines = [
         f"  • {s['time_display']}  "
         f"[period={_period_from_time(s['start_time'])} "
@@ -358,28 +397,35 @@ Your response must start with {{ and end with }}.
 
 You are a clinic receptionist on a phone call.
 Patient has chosen {confirmed_date_display} with {doctor_name}.
-Currently selected period: {confirmed_period}
+Currently selected period: {confirmed_period}{current_time_note}
 
 ALL available slots for this date (every period is listed):
 {slots_str}
 
 YOUR JOB:
 1. Read the patient's message.
-2. If the patient asks for a DIFFERENT period or mentions a time in a different period →
+2. If the patient mentions a specific time:
+   a. If that time is in the PAST (only if date is today and time < current time) →
+      tell them that time has already passed. Suggest the nearest available slots.
+      Output "time" as null, "completed" as false.
+   b. If that time is NOT in the available list →
+      say it's not available. Suggest the nearest slots from the list.
+      Output "time" as null, "completed" as false.
+   c. If that time IS in the available list → confirm it.
+      Output exact start= value as "time", "completed" as true.
+3. If the patient asks for a DIFFERENT period or mentions a time in a different period →
    switch to that period, show its slots, ask which time they prefer.
-   Output the new period as "period".
-3. Match their time to a slot:
+   Output new period as "period".
+4. Match their time to a slot:
    - "2 pm", "2 o'clock", "14:00"   → match on start=
    - "1:30 to 2", "half one to two" → match on START time
    - "yes / ok / that one / haan"   → if ONE slot in current period confirm it,
                                        otherwise ask which one
-4. If matched → output start= value as "time", output the period as "period",
-   set completed = true.
-5. If the time is NOT in the list above → say it's unavailable, suggest nearest
-   slots from the list, do NOT set completed = true.
-6. If no time chosen yet → list slots for the current period and ask.
+5. If no time chosen yet → list slots for the current period and ask.
 
 RULES:
+- NEVER silently pick a different time if the patient's requested time is past or unavailable.
+  Always tell them explicitly first, then offer alternatives from the list.
 - "time" MUST be an exact start= value from the list above. NEVER invent a time.
 - completed = true ONLY when you are certain the start= value is in the list.
 - When in doubt → completed = false.
@@ -428,7 +474,6 @@ async def _handle_ask_date(
 
     ai_text   = _clean_speak(parsed.get("speak"))
     new_date  = parsed.get("date")
-    # Use LLM-extracted hint as raw string → normalise / LLM-parse later
     raw_hint  = parsed.get("time_hint")
     time_hint = await _extract_time_hint(raw_hint) if raw_hint else None
 
@@ -486,7 +531,13 @@ async def _handle_ask_period(
     if not periods:
         return _no_slots_state(state, doctor_name, history)
 
-    parsed = await _call_ask_period(doctor_name, _date_display(confirmed_date), periods, history)
+    parsed = await _call_ask_period(
+        doctor_name,
+        _date_display(confirmed_date),
+        confirmed_date,                  # ← pass iso date
+        periods,
+        history,
+    )
     if not isinstance(parsed, dict) or not parsed:
         logger.warning("ask_period: LLM unparseable")
         return _fallback_state(state, history)
@@ -527,7 +578,6 @@ async def _handle_ask_time(
     confirmed_period: str,
     history: list[dict],
 ) -> dict:
-    # ── Fetch ALL slots for the date (no period filter) ───────────────────────
     try:
         slots = await _fetch_all_times_for_date(doctor_id, confirmed_date)
     except Exception as e:
@@ -537,7 +587,6 @@ async def _handle_ask_time(
     if not slots:
         return _no_slots_state(state, doctor_name, history)
 
-    # Helper: build the "unavailable" message listing all real slots
     def _unavailable_msg(requested: str) -> str:
         times_str = ", ".join(s["time_display"] for s in slots)
         return (
@@ -548,7 +597,6 @@ async def _handle_ask_time(
     # ── Pre-match time_hint carried from an earlier stage ─────────────────────
     time_hint = state.get("slot_time_hint")
     if time_hint:
-        # time_hint is already normalised HH:MM from earlier processing
         pre_matched = _find_slot_by_time(slots, time_hint)
         if pre_matched:
             logger.info(f"ask_time: pre-matched hint | hint={time_hint} → {pre_matched['start_time']}")
@@ -592,7 +640,12 @@ async def _handle_ask_time(
 
     # ── Normal LLM call ───────────────────────────────────────────────────────
     parsed = await _call_ask_time(
-        doctor_name, _date_display(confirmed_date), confirmed_period, slots, history
+        doctor_name,
+        _date_display(confirmed_date),
+        confirmed_date,                  # ← pass iso date
+        confirmed_period,
+        slots,
+        history,
     )
     if not isinstance(parsed, dict) or not parsed:
         logger.warning("ask_time: LLM unparseable")
@@ -602,7 +655,7 @@ async def _handle_ask_time(
     raw_time   = parsed.get("time")
     completed  = bool(parsed.get("completed", False))
     new_period = parsed.get("period") or confirmed_period
-    raw_hint   = parsed.get("time_hint")   # what the patient actually said
+    raw_hint   = parsed.get("time_hint")
 
     # ── Verify LLM's slot claim against the REAL slot list ───────────────────
     selected_slot = None
@@ -611,7 +664,6 @@ async def _handle_ask_time(
         selected_slot = _find_slot_by_time(slots, raw_time)
 
         if not selected_slot:
-            # LLM hallucinated — try to parse raw_hint via LLM time parser
             if raw_hint:
                 parsed_hint = await _extract_time_hint(raw_hint)
                 if parsed_hint:
@@ -624,7 +676,6 @@ async def _handle_ask_time(
                         new_period = _period_from_time(selected_slot["start_time"])
 
             if not selected_slot:
-                # Still no match — override speak with truthful message
                 norm = _normalise_time(raw_time) or raw_time
                 ai_text = _unavailable_msg(norm)
                 logger.warning(
@@ -635,7 +686,6 @@ async def _handle_ask_time(
                 new_period = confirmed_period
 
     elif completed and not raw_time:
-        # LLM said completed but gave no time — auto-confirm only if single slot in period
         period_slots = [s for s in slots if _period_from_time(s["start_time"]) == new_period]
         if len(period_slots) == 1:
             selected_slot = period_slots[0]
@@ -644,8 +694,6 @@ async def _handle_ask_time(
             completed = False
 
     else:
-        # Not completed — if LLM gave a time_hint we can try to match it silently
-        # (patient may have said a valid time but LLM wasn't confident)
         if raw_hint and not completed:
             parsed_hint = await _extract_time_hint(raw_hint)
             if parsed_hint:
@@ -658,7 +706,6 @@ async def _handle_ask_time(
                     selected_slot = candidate
                     new_period    = _period_from_time(candidate["start_time"])
                     completed     = True
-                    # Override LLM speak with a proper confirmation
                     ai_text = (
                         f"I've got you down for {candidate['full_display']} "
                         f"with {state.get('doctor_confirmed_name', 'the doctor')}. "
@@ -738,7 +785,6 @@ async def booking_slot_selection_node(state: dict) -> dict:
     stage       = state.get("slot_stage") or "ask_date"
     history     = list(state.get("booking_slot_selection_history") or [])
 
-
     if user_text:
         history.append({"role": "user", "content": user_text})
 
@@ -747,7 +793,6 @@ async def booking_slot_selection_node(state: dict) -> dict:
 
     # ── If already in ask_time and patient mentions a time in a different
     #    period, update confirmed_period before dispatching ──────────────────
-    
     if stage == "ask_time" and user_text and confirmed_date:
         extracted = await _extract_time_hint(user_text)
         if extracted:

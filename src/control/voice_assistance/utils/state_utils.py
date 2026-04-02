@@ -110,6 +110,7 @@ def reset_from_date(state: dict, user_text: str) -> dict:
         **state,
         "user_change_request":              user_text,
         "slot_stage":                       "ask_date",
+        "active_node": "booking_slot_selection",
         "booking_slot_selection_completed": False,
         "slot_chosen_date":                 None,
         "slot_chosen_period":               None,
@@ -139,7 +140,7 @@ def reset_from_slot(state: dict, user_text: str) -> dict:
     return {
         **state,
         "user_change_request":              user_text,
-        "active_node": "doctor_selection",
+        "active_node": "booking_slot_selection",
         "slot_stage":                       "ask_slot",
         "booking_slot_selection_completed": False,
         "slot_chosen_period":               None,

@@ -29,8 +29,6 @@ TIMEOUT_TEXT = "I still could not hear you. Thank you for calling. Goodbye."
 _startup_done = False
 
 
-
-
 def _build_appointment_types(appointment_types: list) -> dict:
     return {at.id: [at.name, at.description] for at in appointment_types}
 

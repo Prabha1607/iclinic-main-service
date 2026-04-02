@@ -104,8 +104,6 @@ def build_out_of_context_prompt(state: dict) -> str:
         {{"is_out_of_context": false}}  — if related to the appointment flow
         """.strip()
 
-
-
 def build_intent_system(state: dict) -> str:
     confirmed_doctor: str | None = state.get("doctor_confirmed_name")
     confirmed_date: str | None = format_date_display(state.get("slot_chosen_date"))
@@ -140,41 +138,41 @@ def build_intent_system(state: dict) -> str:
     YOUR TASK
     ────────────────────────────────────────
     Classify the patient's message into ONE of:
-    - "change_doctor"  → wants a different doctor than the one already selected
-    - "change_date"    → wants a different date than the one already selected
-    - "change_slot"    → wants a different time slot OR period than what is already selected
-    - "none"           → normal reply, confirmation, unrelated
+    - "change_doctor"  → wants a different doctor than the one already selected, OR explicitly asks to change/switch doctor even if none selected yet
+    - "change_date"    → wants a different date than the one already selected, OR explicitly asks to change/switch date even if none selected yet
+    - "change_slot"    → wants a different time slot OR period than what is already selected, OR explicitly asks to change/switch time even if none selected yet
+    - "none"           → normal reply, confirmation, or first-time mention of a value
 
     ────────────────────────────────────────
     RULES
     ────────────────────────────────────────
-    Use the selected context above to detect implicit changes. Examples:
+    If something IS already selected, detect implicit changes:
 
     If slot selected = "10:30 AM → 11:00 AM":
-    - "I'd like 11:30"           → change_slot  (different time from selected)
+    - "I'd like 11:30"           → change_slot
     - "can I do 11:30 instead"   → change_slot
-    - "actually 12 o'clock"      → change_slot
-    - "yes that's fine"          → none         (agreeing with selected)
+    - "yes that's fine"          → none
     - "sounds good"              → none
 
     If period selected = "morning":
     - "I want afternoon instead" → change_slot
-    - "can we do evening"        → change_slot
     - "morning is fine"          → none
 
     If date selected = "Tuesday, Mar 24 2026":
     - "can I do Wednesday"       → change_date
-    - "actually next Friday"     → change_date
     - "Tuesday works"            → none
 
     If doctor selected = "Dr. Sneha Singh":
     - "I want the male doctor"   → change_doctor
-    - "can I switch doctors"     → change_doctor
     - "she's fine"               → none
 
+    If NOTHING is selected yet:
+    - "I want to change the date" / "can I switch the date"   → change_date   (explicit change request)
+    - "I want to change the doctor" / "can I switch doctors"  → change_doctor (explicit change request)
+    - "I want to change the time" / "can I change my slot"    → change_slot   (explicit change request)
+    - "I want Tuesday" / "morning please" / "Dr. Smith"       → none          (first-time value mention, not a change)
+
     General rules:
-    - If the patient mentions a DIFFERENT time/date/doctor than what is selected → it is a change.
-    - If nothing is selected yet for that field, a mention is a FIRST selection → "none".
     - "no" alone or "incorrect" alone → "none" (let pre_confirmation handle it).
     - A simple yes/confirmation word → "none".
     - When in doubt → "none".
@@ -182,5 +180,4 @@ def build_intent_system(state: dict) -> str:
     Respond with ONLY valid JSON, no markdown, no explanation:
     {{"intent": "<change_doctor|change_date|change_slot|none>"}}
     """.strip()
-
 

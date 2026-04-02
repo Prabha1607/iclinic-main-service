@@ -1,6 +1,9 @@
 def route_after_query_intent(state: dict) -> str:
     service_type = state.get("service_type")
 
+    if state.get("speak_only"):
+        return "tts"
+    
     forced_node = state.get("active_node")
     if forced_node in {
         "booking_slot_selection",

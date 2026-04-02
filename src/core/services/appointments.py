@@ -1,29 +1,17 @@
 import logging
-from datetime import UTC, datetime
-from fastapi import HTTPException
-from fastapi_mail import FastMail, MessageSchema
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import UTC, datetime, timezone
 from src.data.repositories.appointments import (
     create_appointment_repo,
     get_slot_for_update,
     mark_slot_booked,
-)
-import logging
-from datetime import datetime, timezone
-from src.data.repositories.appointments import (
     mark_completed_appointments_repo,
-)
-logger = logging.getLogger(__name__)
-from src.control.voice_assistance.config import conf
-from src.data.clients.auth_client import get_full_providers
-from fastapi import HTTPException, status
-from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
-from src.data.models.postgres.appointment import Appointment
-from src.data.repositories.appointments import (
     get_appointment_by_id,
     get_appointments,
     get_instance_by_id,
 )
+from src.data.clients.auth_client import get_full_providers
+from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
+from src.data.models.postgres.appointment import Appointment
 from src.data.repositories.generic_crud import update_instance
 from src.schemas.appointments import (
     AppointmentResponse,
@@ -36,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 async def send_booking_confirmation_email(to_email: str, body: str) -> None:
+    from fastapi_mail import FastMail, MessageSchema
+    from src.control.voice_assistance.config import conf
     message = MessageSchema(
         subject="Your Appointment is Confirmed",
         recipients=[to_email],
@@ -48,6 +38,8 @@ async def send_booking_confirmation_email(to_email: str, body: str) -> None:
 
 
 async def send_cancel_cancellation_email(to_email: str, body: str) -> None:
+    from fastapi_mail import FastMail, MessageSchema
+    from src.control.voice_assistance.config import conf
     message = MessageSchema(
         subject="Your Appointment has been Cancelled",
         recipients=[to_email],
@@ -123,10 +115,8 @@ def build_booking_email_body(
 
     return "\n".join(lines)
 
-async def insert_appointment_service(
-    db: AsyncSession,
-    appointment_data,
-):
+
+async def insert_appointment_service(db, appointment_data):
     logger.info(
         "Inserting appointment",
         extra={
@@ -137,21 +127,13 @@ async def insert_appointment_service(
     )
 
     try:
-        slot = await get_slot_for_update(
-            db, appointment_data.availability_slot_id
-        )
+        slot = await get_slot_for_update(db, appointment_data.availability_slot_id)
 
         if not slot:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Slot not found",
-            )
+            raise LookupError("Slot not found")
 
         if slot.status == SlotStatus.BOOKED:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Slot already booked",
-            )
+            raise ValueError("Slot already booked")
 
         appointment = await create_appointment_repo(
             db=db,
@@ -159,9 +141,7 @@ async def insert_appointment_service(
         )
 
         await mark_slot_booked(db, slot)
-
         await db.commit()
-
         await db.refresh(appointment)
 
         logger.info(
@@ -174,13 +154,12 @@ async def insert_appointment_service(
 
         return appointment
 
-    except HTTPException:
+    except (LookupError, ValueError):
         await db.rollback()
         raise
 
     except Exception:
         await db.rollback()
-
         logger.exception(
             "Failed to insert appointment",
             extra={
@@ -188,22 +167,17 @@ async def insert_appointment_service(
                 "provider_id": appointment_data.provider_id,
             },
         )
+        raise
 
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create appointment",
-        )
-    
-async def update_appointment(
-    appointment_id: int, db: AsyncSession, update_data
-) -> None:
+
+async def update_appointment(appointment_id: int, db, update_data) -> None:
     logger.info("Updating appointment", extra={"appointment_id": appointment_id})
     try:
         appointment = await get_instance_by_id(id=appointment_id, db=db)
 
         if not appointment:
             logger.warning("Appointment not found for update", extra={"appointment_id": appointment_id})
-            raise HTTPException(status_code=404, detail="Appointment not found")
+            raise LookupError("Appointment not found")
 
         await update_instance(
             id=appointment_id,
@@ -212,7 +186,7 @@ async def update_appointment(
             **update_data.model_dump(exclude_unset=True),
         )
         logger.info("Appointment updated successfully", extra={"appointment_id": appointment_id})
-    except HTTPException:
+    except LookupError:
         raise
     except Exception as e:
         logger.error(
@@ -222,16 +196,14 @@ async def update_appointment(
         raise
 
 
-async def cancel_appointment(
-    appointment_id: int, cancellation_reason: str, db: AsyncSession
-) -> None:
+async def cancel_appointment(appointment_id: int, cancellation_reason: str, db) -> None:
     logger.info("Cancelling appointment", extra={"appointment_id": appointment_id})
     try:
         appointment = await get_instance_by_id(id=appointment_id, db=db)
 
         if not appointment:
             logger.warning("Appointment not found for cancellation", extra={"appointment_id": appointment_id})
-            raise HTTPException(status_code=404, detail="Appointment not found")
+            raise LookupError("Appointment not found")
 
         if appointment.status == AppointmentStatus.CANCELLED:
             logger.warning(
@@ -250,7 +222,7 @@ async def cancel_appointment(
             is_active=False,
         )
         logger.info("Appointment cancelled successfully", extra={"appointment_id": appointment_id})
-    except HTTPException:
+    except LookupError:
         raise
     except Exception as e:
         logger.error(
@@ -260,10 +232,7 @@ async def cancel_appointment(
         raise
 
 
-async def get_appointment_by_id_service(
-    db: AsyncSession,
-    appointment_id: int,
-) -> dict | None:
+async def get_appointment_by_id_service(db, appointment_id: int) -> dict | None:
     logger.info("Fetching appointment by ID", extra={"appointment_id": appointment_id})
 
     appt = await get_appointment_by_id(db=db, appointment_id=appointment_id)
@@ -287,7 +256,7 @@ async def get_appointment_by_id_service(
 
 
 async def get_all_appointments_service(
-    db: AsyncSession,
+    db,
     token: str,
     page: int,
     page_size: int,
@@ -322,10 +291,7 @@ async def get_all_appointments_service(
                     extra={"updated_count": updated}
                 )
     except Exception as e:
-        logger.error(
-            "Failed to auto-complete appointments",
-            extra={"error": str(e)}
-        )
+        logger.error("Failed to auto-complete appointments", extra={"error": str(e)})
 
     try:
         appointments = await get_appointments(

@@ -1,8 +1,5 @@
-import logging
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.api.rest.dependencies import get_current_user, get_db
 from src.core.services.available_slots import (
     create_provider_slots_service,
@@ -13,11 +10,11 @@ from src.schemas.available_slots import (
     AvailableSlotBulkResponse,
     AvailableSlotResponse,
 )
+import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/slots", tags=["Slots"])
-
 
 @router.get("/providers/{provider_id}", response_model=list[AvailableSlotResponse])
 async def get_provider_slots(

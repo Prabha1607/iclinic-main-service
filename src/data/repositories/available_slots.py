@@ -1,10 +1,8 @@
 import logging
 from datetime import datetime, timedelta, timezone
-
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import SlotStatus
 from src.schemas.available_slots import AvailableSlotCreate

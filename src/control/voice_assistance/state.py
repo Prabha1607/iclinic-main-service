@@ -11,7 +11,8 @@ class VoiceState(TypedDict):
     speech_user_text: str | None
     speech_ai_text: str | None
     speech_error: str | None
-
+    speak_only: bool | None
+     
     # ── Top-level routing ─────────────────────────────────────────────────────
     service_type: str | None
     service_intent_history: list[dict[str, str]] | None

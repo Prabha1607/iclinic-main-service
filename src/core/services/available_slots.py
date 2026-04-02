@@ -1,8 +1,3 @@
-import logging
-
-from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import SlotStatus
 from src.data.repositories.available_slots import (
@@ -15,13 +10,13 @@ from src.schemas.available_slots import (
     AvailableSlotBulkResponse,
     AvailableSlotResponse,
 )
+import logging
+
 
 logger = logging.getLogger(__name__)
 
 
-async def change_slot_status(
-    db: AsyncSession, slot_id: int, new_status: SlotStatus
-) -> None:
+async def change_slot_status(db, slot_id: int, new_status: SlotStatus) -> None:
     logger.info(
         "Changing slot status",
         extra={"slot_id": slot_id, "new_status": new_status},
@@ -40,9 +35,7 @@ async def change_slot_status(
         raise
 
 
-async def get_provider_slots_service(
-    db: AsyncSession, provider_id: int
-) -> list[AvailableSlotResponse]:
+async def get_provider_slots_service(db, provider_id: int) -> list[AvailableSlotResponse]:
     logger.info("Fetching slots for provider", extra={"provider_id": provider_id})
     try:
         slots = await get_slots_by_provider(db=db, provider_id=provider_id)
@@ -60,7 +53,7 @@ async def get_provider_slots_service(
 
 
 async def create_provider_slots_service(
-    db: AsyncSession,
+    db,
     provider_id: int,
     payload: AvailableSlotBulkCreate,
     created_by: int,
@@ -79,10 +72,7 @@ async def create_provider_slots_service(
             "Slot creation rejected — empty payload",
             extra={"provider_id": provider_id, "created_by": created_by},
         )
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="At least one slot must be provided.",
-        )
+        raise ValueError("At least one slot must be provided.")
 
     try:
         inserted, skipped = await create_slots_for_provider(
@@ -91,6 +81,8 @@ async def create_provider_slots_service(
             slots=payload.slots,
             created_by=created_by,
         )
+    except ValueError:
+        raise
     except Exception as e:
         logger.error(
             "Failed to create slots for provider",

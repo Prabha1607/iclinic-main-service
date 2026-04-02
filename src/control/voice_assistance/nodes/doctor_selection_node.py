@@ -34,6 +34,34 @@ def _find_doctor_by_id(doctors: list[dict], doctor_id: int | None) -> dict | Non
         return None
     return next((d for d in doctors if d["id"] == doctor_id), None)
 
+async def _doctor_has_slots(doctor_id: int) -> bool:
+    """
+    Returns True if the doctor has at least one future available slot.
+    Reuses the same DB query pattern as booking_slot_selection_node.
+    """
+    try:
+        from src.data.clients.postgres_client import AsyncSessionLocal
+        from src.data.repositories.generic_crud import bulk_get_instance
+        from src.data.models.postgres.available_slot import AvailableSlot
+        from src.data.models.postgres.ENUM import SlotStatus
+        from src.control.voice_assistance.utils.date_utils import today_ist, now_time_ist
+
+        async with AsyncSessionLocal() as db:
+            today    = today_ist()
+            now_time = now_time_ist()
+            slots = await bulk_get_instance(
+                AvailableSlot, db, provider_id=doctor_id, is_active=True
+            )
+            return any(
+                s.status == SlotStatus.AVAILABLE and (
+                    s.availability_date > today or
+                    (s.availability_date == today and s.start_time > now_time)
+                )
+                for s in slots
+            )
+    except Exception as e:
+        logger.warning(f"_doctor_has_slots: check failed | doctor_id={doctor_id} | error={e}")
+        return True  
 
 def _no_doctors_return(state: dict, history: list[dict]) -> dict:
     history.append({"role": "assistant", "content": NO_DOCTORS_RESPONSE})
@@ -78,7 +106,16 @@ async def fetch_doctors(
             "bio":            profile["bio"]             if profile else "",
         })
 
+    # ── NEW: filter to doctors who actually have available slots ──────────────
+    if doctors:
+        import asyncio
+        slot_checks = await asyncio.gather(*(_doctor_has_slots(d["id"]) for d in doctors))
+        doctors = [d for d, has_slots in zip(doctors, slot_checks) if has_slots]
+        logger.info(f"fetch_doctors: {len(doctors)} doctors have available slots")
+    # ─────────────────────────────────────────────────────────────────────────
+
     cache[cache_key] = doctors
+
     logger.info(f"fetch_doctors: fetched providers | count={len(doctors)} | cache_key={cache_key}")
     return doctors, cache
 
