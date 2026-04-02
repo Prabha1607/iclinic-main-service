@@ -1,3 +1,8 @@
+"""Speech-to-text (STT) node for the voice assistance graph.
+
+Normalises raw speech input received from Twilio before passing it to the
+query intent classifier for further processing.
+"""
 import logging
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,13 @@
+"""
+LangGraph node for booking appointments in the iClinic voice assistance module.
+
+Handles the final appointment persistence step: validates slot availability,
+inserts the appointment record, marks the slot as booked, and gracefully
+handles race conditions where a slot is taken between selection and booking.
+"""
 import logging
 from datetime import date, time as time_type
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.control.voice_assistance.prompts.book_appointment_node_prompt import (
     DEFAULT_CONTEXT,
@@ -26,16 +34,31 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def extract_appointment_context(conversation_history: list | str) -> dict:
+    """
+    Extract structured appointment context from the conversation history via LLM.
+
+    Invokes the LLM with the extraction prompt and returns a dict containing
+    fields such as ``reason_for_visit``, ``notes``, and ``instructions``.
+    Falls back to ``DEFAULT_CONTEXT`` if the LLM call fails.
+
+    Args:
+        conversation_history: The conversation history as a list of message dicts
+                              or a pre-formatted string.
+
+    Returns:
+        dict: Extracted appointment context fields, or ``DEFAULT_CONTEXT`` on failure.
+    """
     history_text = build_history_text(conversation_history)
     try:
         return await invokeLLM_json(
             system_prompt=EXTRACT_CONTEXT_PROMPT,
             user_prompt=f"Conversation:\n{history_text}",
         )
-    except Exception:
+    except (RuntimeError, ValueError) as e:
         logger.warning(
             "Failed to extract appointment context; falling back to DEFAULT_CONTEXT.",
             exc_info=True,
+            extra={"error": str(e)},
         )
         return DEFAULT_CONTEXT
 
@@ -51,7 +74,6 @@ async def _fetch_alternate_slots(
     Reuses the same DB pattern as booking_slot_selection_node.
     """
     try:
-        from datetime import date as dt_date
         async with AsyncSessionLocal() as db:
             today    = today_ist()
             now_time = now_time_ist()
@@ -85,8 +107,8 @@ async def _fetch_alternate_slots(
             # Sort by date then time, return top 3
             alternates.sort(key=lambda x: (x["date"], x["start_time"]))
             return alternates[:3]
-    except Exception as e:
-        logger.warning(f"_fetch_alternate_slots: failed | doctor_id={doctor_id} | error={e}")
+    except SQLAlchemyError as e:
+        logger.exception(f"_fetch_alternate_slots: failed | doctor_id={doctor_id} | error={e}")
         return []
 
 
@@ -119,6 +141,23 @@ def _build_slot_taken_message(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def book_appointment_node(state: dict) -> dict:
+    """
+    LangGraph node that persists a confirmed appointment booking.
+
+    Validates that the slot stage is ``"ready_to_book"``, parses date/time
+    fields, checks live slot availability to guard against race conditions,
+    inserts the ``Appointment`` record, and marks the slot as booked.
+    Returns an updated state with the booking result and the AI confirmation
+    or error message to be spoken back to the caller.
+
+    Args:
+        state: The current ``VoiceState`` dict containing slot selection,
+               patient identity, doctor, and appointment type details.
+
+    Returns:
+        dict: Updated state with ``slot_booked_id``, ``speech_ai_text``,
+        and ``booking_appointment_completed`` set accordingly.
+    """
     if state.get("slot_stage") != "ready_to_book":
         logger.info("Skipping book_appointment_node: slot_stage is not 'ready_to_book'.")
         return {**state, "active_node": "book_appointment", "booking_appointment_completed": False}
@@ -221,11 +260,12 @@ async def book_appointment_node(state: dict) -> dict:
             speech_ai_text                   = ai_text,
         )
 
-    except Exception:
+    except SQLAlchemyError as e:
         logger.exception(
             "Failed to persist appointment for patient_id=%s, slot_id=%s.",
             patient_id,
             matched.get("id"),
+            extra={"error": str(e)},
         )
         return update_state(
             state,

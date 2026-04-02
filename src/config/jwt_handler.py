@@ -1,3 +1,9 @@
+"""
+JWT token creation and verification utilities for the iClinic main service.
+
+Provides helpers to issue and validate signed access and refresh tokens
+using the Jose library, with expiry, JTI, and token-type claims enforced.
+"""
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -11,6 +17,21 @@ logger = logging.getLogger(__name__)
 
 
 async def create_access_token(payload: dict) -> tuple[str, str]:
+    """
+    Create a signed JWT access token from the given payload.
+
+    Appends expiry, a unique JTI, and a ``"access"`` type claim before
+    encoding with the access secret key.
+
+    Args:
+        payload: Base claims dict to encode into the token (e.g. ``sub``, ``id``).
+
+    Returns:
+        tuple[str, str]: The encoded JWT string and the generated JTI.
+
+    Raises:
+        Exception: Re-raises any error encountered during token creation.
+    """
     logger.info("Creating access token", extra={"subject": payload.get("sub")})
     try:
         to_encode = payload.copy()
@@ -25,8 +46,8 @@ async def create_access_token(payload: dict) -> tuple[str, str]:
             extra={"subject": payload.get("sub"), "jti": jti, "expires_at": expire.isoformat()},
         )
         return encoded_jwt, jti
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to create access token",
             extra={"subject": payload.get("sub"), "error": str(e)},
         )
@@ -34,6 +55,21 @@ async def create_access_token(payload: dict) -> tuple[str, str]:
 
 
 async def create_refresh_token(payload: dict) -> tuple[str, str]:
+    """
+    Create a signed JWT refresh token from the given payload.
+
+    Appends expiry, a unique JTI, and a ``"refresh"`` type claim before
+    encoding with the refresh secret key.
+
+    Args:
+        payload: Base claims dict to encode into the token (e.g. ``sub``, ``id``).
+
+    Returns:
+        tuple[str, str]: The encoded JWT string and the generated JTI.
+
+    Raises:
+        Exception: Re-raises any error encountered during token creation.
+    """
     logger.info("Creating refresh token", extra={"subject": payload.get("sub")})
     try:
         to_encode = payload.copy()
@@ -48,8 +84,8 @@ async def create_refresh_token(payload: dict) -> tuple[str, str]:
             extra={"subject": payload.get("sub"), "jti": jti, "expires_at": expire.isoformat()},
         )
         return encoded_jwt, jti
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to create refresh token",
             extra={"subject": payload.get("sub"), "error": str(e)},
         )
@@ -57,6 +93,18 @@ async def create_refresh_token(payload: dict) -> tuple[str, str]:
 
 
 async def verify_access_token(token: str) -> dict:
+    """
+    Decode and validate a JWT access token.
+
+    Args:
+        token: The encoded JWT access token string to verify.
+
+    Returns:
+        dict: The decoded claims payload on successful verification.
+
+    Raises:
+        HTTPException 401: When the token has expired or is otherwise invalid.
+    """
     logger.info("Verifying access token")
     try:
         payload = jwt.decode(
@@ -82,6 +130,18 @@ async def verify_access_token(token: str) -> dict:
 
 
 async def verify_refresh_token(token: str) -> dict:
+    """
+    Decode and validate a JWT refresh token.
+
+    Args:
+        token: The encoded JWT refresh token string to verify.
+
+    Returns:
+        dict: The decoded claims payload on successful verification.
+
+    Raises:
+        HTTPException 401: When the token is missing, expired, or invalid.
+    """
     logger.info("Verifying refresh token")
 
     if not token:

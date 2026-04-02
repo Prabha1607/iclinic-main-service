@@ -1,3 +1,9 @@
+"""Service intent node for the voice assistance graph.
+
+Determines whether the patient wants to book or cancel an appointment
+through conversational LLM interaction, then exposes the resolved
+service_type for downstream routing.
+"""
 import logging
 from src.control.voice_assistance.prompts.service_intent_node_prompt import (
     SERVICE_INTENT_PROMPT,
@@ -66,8 +72,8 @@ async def service_intent_node(state: dict) -> dict:
             "service_type": service_type,
         }
 
-    except Exception as e:
-        logger.error("service_intent_node: failed to process intent", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("service_intent_node: failed to process intent", extra={"error": str(e)})
         return {
             **state,
             "active_node": "service_intent",

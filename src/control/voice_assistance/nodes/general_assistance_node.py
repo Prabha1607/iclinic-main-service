@@ -1,3 +1,9 @@
+"""General assistance node for the voice assistance graph.
+
+Handles off-topic or general user questions that arise during the
+appointment booking or cancellation flow, then guides the patient back
+to the main conversation objective.
+"""
 import logging
 from src.control.voice_assistance.prompts.general_assistance_node_prompt import (
     build_general_assistance_prompt,
@@ -36,10 +42,9 @@ async def general_assistance_node(state: dict) -> dict:
             {"role": "user", "content": user_prompt},
         ]
         response = await invokeLargeLLM(messages=messages)
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "general_assistance_node: LLM invocation failed",
-            exc_info=True,
             extra={"error": str(e)},
         )
         return {

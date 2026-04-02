@@ -1,5 +1,12 @@
+"""
+LLM client utilities for the iClinic voice assistance module.
+
+Provides round-robin Groq API key rotation and async invocation helpers
+for the LLaMA models used across voice assistance graph nodes.
+"""
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
+
 from src.config.settings import settings
 
 load_dotenv()
@@ -11,7 +18,15 @@ _llama3_index = 0
 
 
 def get_llama1() -> ChatGroq:
-    
+    """
+    Instantiate a LLaMA 3.1 8B ChatGroq client using round-robin key rotation.
+
+    Cycles through the configured Groq API keys on each call to distribute
+    request load across available keys.
+
+    Returns:
+        ChatGroq: A configured ChatGroq instance for the ``llama-3.1-8b-instant`` model.
+    """
     global _llama1_index
     key = API_KEYS[_llama1_index % len(API_KEYS)]
     _llama1_index = (_llama1_index + 1) % len(API_KEYS)
@@ -30,8 +45,22 @@ def _next_llama3_key() -> str:
     return key
 
 
-async def ainvoke_llm(messages):
-   
+async def ainvoke_llm(messages: list) -> object:
+    """
+    Invoke the LLaMA 3.3 70B model asynchronously with automatic key failover.
+
+    Attempts the invocation using each available Groq API key in round-robin
+    order. Moves to the next key on failure and raises if all keys are exhausted.
+
+    Args:
+        messages: List of LangChain message objects to pass to the model.
+
+    Returns:
+        object: The LangChain AI message response from the model.
+
+    Raises:
+        RuntimeError: When all configured Groq API keys have failed.
+    """
     attempts = 0
     last_error = None
 
@@ -44,7 +73,7 @@ async def ainvoke_llm(messages):
                 max_tokens=1000,
                 api_key=api_key,
             ).ainvoke(messages)
-        except Exception as e:
+        except RuntimeError as e:
             last_error = e
             attempts += 1
 

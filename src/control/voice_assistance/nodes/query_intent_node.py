@@ -1,3 +1,8 @@
+"""Query intent node for the voice assistance graph.
+
+Classifies the patient's utterance to detect change requests (doctor, date,
+or slot) and out-of-context queries, then routes accordingly within the flow.
+"""
 import logging
 from src.control.voice_assistance.prompts.query_intent_node_prompt import build_intent_system, build_out_of_context_prompt
 from src.control.voice_assistance.utils.llm_utils import invokeLLM_json
@@ -6,7 +11,20 @@ from src.control.voice_assistance.utils.state_utils import reset_from_date, rese
 logger = logging.getLogger(__name__)
 
 async def query_intent_node(state: dict) -> dict:
-    
+    """Graph node that classifies the patient's intent before routing.
+
+    Detects change requests (doctor, date, time-slot) or out-of-context
+    queries from the patient's speech input. Returns updated state with
+    necessary reset flags and routing hints.
+
+    Args:
+        state: Graph state containing the latest speech input, active node,
+               and existing booking progress.
+
+    Returns:
+        Updated state with intent-based flags such as ``user_change_request``,
+        ``is_out_of_context``, or ``speak_only`` set accordingly.
+    """
     user_text = state.get("speech_user_text")
 
     if not user_text:
@@ -28,16 +46,16 @@ async def query_intent_node(state: dict) -> dict:
 
     try:
         intent_system = build_intent_system(state)
-    except Exception as e:
-        logger.error(f"Failed to build intent system | error={e}")
+    except RuntimeError as e:
+        logger.exception(f"Failed to build intent system | error={e}")
         return base_state
 
     if active_node == "pre_confirmation":
         logger.info("Running change detection (pre_confirmation stage)")
         try:
             parsed = await invokeLLM_json(system_prompt=intent_system, user_prompt=cleaned)
-        except Exception as e:
-            logger.error(f"Intent detection failed | error={e}")
+        except RuntimeError as e:
+            logger.exception(f"Intent detection failed | error={e}")
             return base_state
 
         if not isinstance(parsed, dict):
@@ -61,8 +79,8 @@ async def query_intent_node(state: dict) -> dict:
     try:
         context_prompt = build_out_of_context_prompt(state)
         context_check = await invokeLLM_json(system_prompt=context_prompt, user_prompt=cleaned)
-    except Exception as e:
-        logger.error(f"Context check failed | error={e}")
+    except RuntimeError as e:
+        logger.exception(f"Context check failed | error={e}")
         context_check = {}
 
     if isinstance(context_check, dict) and context_check.get("is_out_of_context"):
@@ -71,8 +89,8 @@ async def query_intent_node(state: dict) -> dict:
 
     try:
         parsed = await invokeLLM_json(system_prompt=intent_system, user_prompt=cleaned)
-    except Exception as e:
-        logger.error(f"Intent detection failed | error={e}")
+    except RuntimeError as e:
+        logger.exception(f"Intent detection failed | error={e}")
         return base_state
 
     if not isinstance(parsed, dict):

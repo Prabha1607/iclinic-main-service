@@ -1,9 +1,15 @@
-from __future__ import annotations
+"""Clarify node for the voice assistance graph.
+
+Drives the symptom-clarification phase of the appointment booking flow.
+Iteratively asks the patient questions to understand their medical intent,
+then maps the gathered information to an appointment-type ID.
+"""
+
 
 import asyncio
-import json
+
 import logging
-import re
+
 
 from src.control.voice_assistance.prompts.clarify_node_prompt import (
     DEFAULT_INTENT,
@@ -121,8 +127,8 @@ async def _run_mapping(history: list[dict], appointment_types: dict) -> dict:
             invokeLLM_json(system_prompt, user_prompt),
             timeout=5.0,
         )
-    except (asyncio.TimeoutError, Exception) as e:
-        logger.warning("_run_mapping: failed or timed out", extra={"error": str(e)})
+    except (asyncio.TimeoutError, RuntimeError, ValueError) as e:
+        logger.exception("_run_mapping: failed or timed out", extra={"error": str(e)})
         parsed = None
 
     if parsed and parsed.get("appointment_type_id") is not None:
@@ -247,8 +253,8 @@ async def clarify_node(state: dict) -> dict:
             mapping_history=mapping_history,
         )
 
-    except Exception as exc:
-        logger.error("clarify_node: unhandled exception: %s", exc, exc_info=True)
+    except RuntimeError as exc:
+        logger.exception("clarify_node: unhandled exception: %s", exc, extra={"error": str(exc)})
         return update_state(
             state,
             active_node="clarify",

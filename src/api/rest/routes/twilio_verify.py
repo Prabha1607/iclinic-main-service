@@ -1,17 +1,25 @@
+"""
+REST route handlers for Twilio phone verification in the iClinic main service.
+
+Exposes endpoints for phone number lookup, OTP dispatch and verification,
+and Twilio Caller ID registration.
+"""
 import logging
+
 from fastapi import APIRouter, status
+
 from src.schemas.twilio_verify import (
-    OTPVerifyRequest,
-    PhoneRequest,
-    PhoneLookupResponse,
-    SendOTPResponse,
-    CheckOTPResponse,
     CallerIDResponse,
+    CheckOTPResponse,
+    OTPVerifyRequest,
+    PhoneLookupResponse,
+    PhoneRequest,
+    SendOTPResponse,
 )
 from src.core.services.twilio_verify import (
+    check_otp_service,
     lookup_phone_service,
     send_otp_service,
-    check_otp_service,
     verify_caller_id_service,
 )
 
@@ -21,7 +29,7 @@ router = APIRouter(prefix="/verify", tags=["Twilio Verification"])
 
 
 @router.post("/lookup", response_model=PhoneLookupResponse, summary="Validate phone number format & existence")
-async def lookup_phone(body: PhoneRequest):
+async def lookup_phone(body: PhoneRequest) -> PhoneLookupResponse:
     """
     Validate the format and existence of a phone number via Twilio Lookups V2.
 
@@ -42,7 +50,7 @@ async def lookup_phone(body: PhoneRequest):
 
 
 @router.post("/send-otp", response_model=SendOTPResponse, status_code=status.HTTP_200_OK, summary="Send OTP to phone number via SMS")
-async def send_otp(body: PhoneRequest):
+async def send_otp(body: PhoneRequest) -> SendOTPResponse:
     """
     Send a one-time password to a phone number via SMS using Twilio Verify V2.
 
@@ -64,7 +72,7 @@ async def send_otp(body: PhoneRequest):
 
 
 @router.post("/check-otp", response_model=CheckOTPResponse, status_code=status.HTTP_200_OK, summary="Verify OTP entered by user")
-async def check_otp(body: OTPVerifyRequest):
+async def check_otp(body: OTPVerifyRequest) -> CheckOTPResponse:
     """
     Verify a one-time password submitted by the user against Twilio Verify V2.
 
@@ -87,7 +95,7 @@ async def check_otp(body: OTPVerifyRequest):
 
 
 @router.post("/caller-id", response_model=CallerIDResponse, status_code=status.HTTP_200_OK, summary="Register a phone number as a Twilio Caller ID")
-async def verify_caller_id(body: PhoneRequest):
+async def verify_caller_id(body: PhoneRequest) -> CallerIDResponse:
     """
     Register a phone number as a verified Twilio Caller ID via an outbound call.
 

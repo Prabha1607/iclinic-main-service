@@ -1,3 +1,9 @@
+"""Doctor selection node for the voice assistance graph.
+
+Handles fetching, presenting, and confirming doctor selection during
+the appointment booking flow. Supports change requests, history compression,
+and fallback logic when no doctors are available.
+"""
 import logging
 from src.control.voice_assistance.prompts.doctor_selection_node_prompt import (
     DOCTOR_CONVERSATION_PROMPT,
@@ -8,6 +14,7 @@ from src.control.voice_assistance.prompts.doctor_selection_node_prompt import (
     doctor_summary,
     doctors_context,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from src.control.voice_assistance.utils.llm_utils import invokeLargeLLM, invokeLargeLLM_json
 from src.data.clients.auth_client import get_full_providers
 from src.control.voice_assistance.utils.state_utils import confirm_doctor_return
@@ -59,8 +66,8 @@ async def _doctor_has_slots(doctor_id: int) -> bool:
                 )
                 for s in slots
             )
-    except Exception as e:
-        logger.warning(f"_doctor_has_slots: check failed | doctor_id={doctor_id} | error={e}")
+    except SQLAlchemyError as e:
+        logger.exception(f"_doctor_has_slots: check failed | doctor_id={doctor_id} | error={e}")
         return True  
 
 def _no_doctors_return(state: dict, history: list[dict]) -> dict:
@@ -81,7 +88,20 @@ async def fetch_doctors(
     appointment_type_id: int | None,
     state: dict,
 ) -> tuple[list[dict], dict]:
+    """Fetch available doctors for the given appointment type, using a cache when possible.
 
+    Retrieves providers from the auth service filtered by ``appointment_type_id``,
+    then filters out any doctors who have no future available slots.
+
+    Args:
+        token: Bearer JWT token used to authenticate against the auth service.
+        appointment_type_id: ID of the appointment type to filter providers by.
+        state: Current graph state; used to read and update the doctors cache.
+
+    Returns:
+        A tuple of ``(doctors, updated_cache)`` where ``doctors`` is a list of
+        provider dicts and ``updated_cache`` is the refreshed cache dict.
+    """
     cache: dict = dict(state.get("doctors_cache") or {})
     cache_key = str(appointment_type_id or "default")
 
@@ -128,6 +148,21 @@ async def build_summary(
     change_log: list[dict],
     confirmed_doctor: dict | None,
 ) -> str:
+    """Compress older conversation turns into a rolling summary.
+
+    Invokes the LLM to produce a concise summary of the conversation so far,
+    incorporating the doctor change log and currently confirmed doctor.
+
+    Args:
+        previous_summary: Existing summary text (may be empty or None).
+        new_turns: List of recent conversation turns to incorporate.
+        change_log: History of doctor change events in the session.
+        confirmed_doctor: The doctor currently confirmed by the patient, if any.
+
+    Returns:
+        Updated summary string; falls back to ``previous_summary`` if the LLM
+        returns nothing.
+    """
     turns_text = "\n".join(
         f"  {m['role'].capitalize()}: {m['content']}"
         for m in new_turns
@@ -229,6 +264,28 @@ async def run_doctor_llm(
     doctor_change_log:    list[dict] | None = None,
     all_doctors:          list[dict] | None = None,
 ) -> str:
+    """Run the doctor conversation LLM for a given interaction mode.
+
+    Builds a message list from the system prompt (populated with context) and
+    recent conversation turns, then calls the large LLM to produce the next
+    assistant response.
+
+    Args:
+        mode: Interaction mode, e.g. ``'present_options'``, ``'confirm_selection'``,
+              ``'handle_question'``, or ``'auto_select'``.
+        doctors: Subset of doctors to present (may exclude the previous doctor).
+        recent_turns: Most recent conversation turns to include in the prompt.
+        conversation_summary: Rolling summary of older turns.
+        intent: Appointment intent string (e.g. ``'general checkup'``).
+        previous_doctor: Doctor previously selected, if any.
+        confirmed_doctor: Doctor currently being confirmed or just selected.
+        user_change_request: Raw utterance that triggered a doctor change, if any.
+        doctor_change_log: List of doctor change events in the session.
+        all_doctors: Full doctor list when presenting all options.
+
+    Returns:
+        AI-generated response text, or an empty string if the LLM fails.
+    """
     seed = recent_turns[-RECENCY_WINDOW:] if recent_turns else [{"role": "user", "content": "start"}]
     summary_block = (
         f"[Earlier conversation summary]\n{conversation_summary}"
@@ -289,6 +346,20 @@ async def _verify_selection(
 # ── Main node ──────────────────────────────────────────────────────────────────
 
 async def doctor_selection_node(state: dict) -> dict:
+    """Graph node that manages the doctor selection step of the booking flow.
+
+    Fetches available doctors, handles first-turn presentation, change requests,
+    auto-selection for single-doctor results, intent classification, and
+    confirmation of the patient's choice.
+
+    Args:
+        state: Graph state containing appointment context, conversation histories,
+               doctor cache, and user utterance.
+
+    Returns:
+        Updated state with doctor selection progress, selected doctor details,
+        updated history, and the AI response text.
+    """
     user_change_request:  str | None = state.get("user_change_request")
     previous_doctor_id:   int | None = state.get("doctor_confirmed_id")
     previous_doctor_name: str | None = state.get("doctor_confirmed_name")
@@ -311,8 +382,8 @@ async def doctor_selection_node(state: dict) -> dict:
             appointment_type_id=appointment_type_id,
             state=state,
         )
-    except Exception as e:
-        logger.error(f"doctor_selection_node: failed to fetch doctors | error={e}")
+    except RuntimeError as e:
+        logger.exception(f"doctor_selection_node: failed to fetch doctors | error={e}")
         return _no_doctors_return(state, history)
 
     if not doctors:

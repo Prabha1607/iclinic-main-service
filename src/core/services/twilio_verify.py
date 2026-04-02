@@ -1,3 +1,8 @@
+"""Service layer for Twilio phone verification and caller ID operations.
+
+Wraps the Twilio Verify and Lookups v2 APIs to provide OTP sending,
+OTP checking, phone-number lookup, and outbound caller-ID validation.
+"""
 import logging
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
@@ -17,6 +22,17 @@ VERIFY_SID = settings.TWILIO_VERIFY_SERVICE_SID
 
 
 async def lookup_phone_service(phone_number: str) -> PhoneLookupResponse:
+    """Look up a phone number using Twilio Lookups v2.
+
+    Args:
+        phone_number: E.164-formatted phone number to look up.
+
+    Returns:
+        ``PhoneLookupResponse`` containing validity, country code, and format.
+
+    Raises:
+        HTTPException: HTTP 400 if Twilio returns an error.
+    """
     logger.info("Phone lookup requested", extra={"phone_number": phone_number})
     try:
         result = twilio_client.lookups.v2.phone_numbers(phone_number).fetch()
@@ -47,6 +63,17 @@ async def lookup_phone_service(phone_number: str) -> PhoneLookupResponse:
 
 
 async def send_otp_service(phone_number: str) -> SendOTPResponse:
+    """Send a one-time password (OTP) to the given phone number via SMS.
+
+    Args:
+        phone_number: E.164-formatted destination phone number.
+
+    Returns:
+        ``SendOTPResponse`` with message, status, and destination number.
+
+    Raises:
+        HTTPException: HTTP 400 if Twilio returns an error.
+    """
     logger.info("OTP send requested", extra={"phone_number": phone_number})
     try:
         verification = twilio_client.verify.v2.services(VERIFY_SID).verifications.create(
@@ -78,6 +105,19 @@ async def send_otp_service(phone_number: str) -> SendOTPResponse:
 
 
 async def check_otp_service(phone_number: str, otp_code: str) -> CheckOTPResponse:
+    """Verify an OTP code submitted by the user.
+
+    Args:
+        phone_number: E.164-formatted phone number that received the OTP.
+        otp_code: OTP entered by the user.
+
+    Returns:
+        ``CheckOTPResponse`` indicating verified status and phone number.
+
+    Raises:
+        HTTPException: HTTP 400 if the OTP is invalid, expired, or Twilio
+            returns an error.
+    """
     logger.info("OTP check requested", extra={"phone_number": phone_number})
     try:
         check = twilio_client.verify.v2.services(VERIFY_SID).verification_checks.create(
@@ -114,6 +154,20 @@ async def check_otp_service(phone_number: str, otp_code: str) -> CheckOTPRespons
 
 
 async def verify_caller_id_service(phone_number: str) -> CallerIDResponse:
+    """Initiate a Twilio outbound caller-ID validation call.
+
+    Twilio will call the number and prompt the recipient to enter a
+    validation code to confirm ownership.
+
+    Args:
+        phone_number: E.164-formatted phone number to validate.
+
+    Returns:
+        ``CallerIDResponse`` with the validation code and call metadata.
+
+    Raises:
+        HTTPException: HTTP 400 if Twilio returns an error.
+    """
     logger.info("Caller ID verification requested", extra={"phone_number": phone_number})
     try:
         validation = twilio_client.validation_requests.create(

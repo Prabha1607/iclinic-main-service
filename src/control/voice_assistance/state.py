@@ -1,7 +1,18 @@
+"""Typed state definition for the voice assistance LangGraph.
+
+Defines ``VoiceState``, a ``TypedDict`` that carries all mutable data
+through the booking and cancellation graph nodes.
+"""
 from typing_extensions import TypedDict
 
 
 class VoiceState(TypedDict):
+    """Represents the full mutable state passed between voice assistance graph nodes.
+
+    Covers call metadata, speech I/O, intent detection, identity confirmation,
+    symptom clarification, appointment type mapping, doctor selection, slot
+    selection, pre-confirmation, booking, and cancellation fields.
+    """
     # ── Call metadata ─────────────────────────────────────────────────────────
     call_to_number: str | None
     call_sid: str | None

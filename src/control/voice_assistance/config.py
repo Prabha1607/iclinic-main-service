@@ -1,3 +1,10 @@
+"""
+Email connection configuration for the iClinic voice assistance module.
+
+Builds the fastapi-mail ``ConnectionConfig`` instance used by appointment
+confirmation and cancellation email senders, sourcing credentials and
+server settings from the application settings.
+"""
 from fastapi_mail import ConnectionConfig
 
 from src.config.settings import settings

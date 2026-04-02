@@ -4,9 +4,13 @@ FastAPI dependency providers for the iClinic main service.
 Supplies reusable dependencies for database session management and
 authenticated user resolution, consumed via FastAPI's ``Depends`` mechanism.
 """
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
+from sqlalchemy.exc import SQLAlchemyError
 from src.config.jwt_handler import verify_access_token
 from src.data.clients.postgres_client import AsyncSessionLocal
 
@@ -28,8 +32,8 @@ async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        except Exception as e:
-            print("DB ERROR:", e)
+        except SQLAlchemyError as e:
+            logger.exception("DB ERROR: %s", e)
             raise
 
 
@@ -56,7 +60,7 @@ async def get_current_user(request: Request) -> dict:
     try:
         credential = request.headers.get("Authorization")
         if credential:
-            scheme, _, token = credential.partition(" ")
+            _, _, token = credential.partition(" ")
         else:
             token = request.cookies.get("access_token")
 
@@ -77,5 +81,6 @@ async def get_current_user(request: Request) -> dict:
 
     except HTTPException:
         raise
-    except Exception:
+    except RuntimeError:
+        logger.exception("Authentication failed")
         raise HTTPException(status_code=500, detail="Authentication failed")

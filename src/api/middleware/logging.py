@@ -57,7 +57,7 @@ def _try_parse_json(raw: str) -> str | dict:
     """Return parsed dict if valid JSON, else return raw string."""
     try:
         return json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
         return raw
 
 
@@ -86,7 +86,7 @@ async def logging_middleware(request: Request, call_next) -> Response:
         try:
             raw = await request.body()
             request_body = _try_parse_json(raw.decode("utf-8"))
-        except Exception:
+        except (UnicodeDecodeError, RuntimeError, ValueError):
             request_body = "<unreadable>"
 
     logger.info(
@@ -119,7 +119,7 @@ async def logging_middleware(request: Request, call_next) -> Response:
                 headers=dict(response.headers),
                 media_type=response.media_type,
             )
-        except Exception:
+        except (UnicodeDecodeError, RuntimeError, ValueError):
             response_body = "<unreadable>"
 
     logger.info(

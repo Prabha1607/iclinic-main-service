@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse
+import logging
 from prometheus_fastapi_instrumentator import Instrumentator
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -67,14 +68,27 @@ api_router.include_router(router=health.router)
 
 app.include_router(router=api_router)
 
-
 @app.exception_handler(AppError)
-async def app_error_handler(request, exc: AppError) -> JSONResponse:
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    """
+    Handle application-level errors raised as ``AppError`` instances.
+
+    Converts the exception into a JSON response using the status code
+    and message carried by the exception.
+
+    Args:
+        request: The incoming HTTP request that triggered the error.
+        exc:     The ``AppError`` instance containing status code and message.
+
+    Returns:
+        JSONResponse: Response with the exception's status code and detail message.
+    """
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
-
 Instrumentator().instrument(app).expose(app)
+logger = logging.getLogger(__name__)
+
 try:
     FastAPIInstrumentor.instrument_app(app)
-except Exception:
-    pass
+except RuntimeError as e:
+    logger.exception("Failed to instrument application", exc_info=True)

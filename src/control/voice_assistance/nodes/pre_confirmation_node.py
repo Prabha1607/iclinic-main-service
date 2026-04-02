@@ -1,3 +1,9 @@
+"""Pre-confirmation node for the voice assistance graph.
+
+Presents a summary of the appointment details to the patient and captures
+their confirmation before the booking is finalised. Handles retries and
+redirects back to slot selection when the patient declines.
+"""
 import json
 import logging
 from typing import Dict, Any
@@ -65,8 +71,8 @@ async def _generate_confirmation_message(snapshot: dict) -> str:
 
         return str(result or "").strip()
 
-    except Exception:
-        logger.exception("Failed to generate confirmation message")
+    except RuntimeError as e:
+        logger.exception("Failed to generate confirmation message", extra={"error": str(e)})
         return ""
 
 
@@ -96,6 +102,22 @@ def _safe_intent_parse(response: Any, user_text: str) -> Dict[str, bool]:
 # ---------------------------
 
 async def pre_confirmation_node(state: dict) -> dict:
+    """Graph node that manages the appointment pre-confirmation step.
+
+    On first entry it builds a confirmation message from the current booking
+    snapshot and awaits the patient's response. On subsequent calls it
+    classifies the patient's intent (confirmed / uncertain / declined) and
+    either proceeds to booking, retries with the same message, or redirects
+    back to slot selection.
+
+    Args:
+        state: Graph state containing booking snapshot, slot details, doctor
+               name, and awaiting-confirmation flag.
+
+    Returns:
+        Updated state with pre-confirmation status, retry count, and the
+        AI response text.
+    """
     try:
 
         awaiting = state.get("booking_awaiting_confirmation", False)
@@ -113,8 +135,8 @@ async def pre_confirmation_node(state: dict) -> dict:
                         system_prompt=INTENT_DETECTION_SYSTEM_PROMPT,
                         user_prompt=f'Patient reply: "{user_text}"',
                     )
-                except Exception:
-                    logger.exception("LLM intent detection crashed")
+                except RuntimeError as e:
+                    logger.exception("LLM intent detection crashed", extra={"error": str(e)})
                     raw_response = None
 
                 intent = _safe_intent_parse(raw_response, user_text)
@@ -153,7 +175,7 @@ async def pre_confirmation_node(state: dict) -> dict:
                     confirmation_msg = await _generate_confirmation_message(snapshot)
                     if not confirmation_msg:
                         raise ValueError("Empty confirmation message")
-                except Exception:
+                except RuntimeError:
                     confirmation_msg = _fallback_confirmation(state)
 
                 return update_state(
@@ -182,7 +204,7 @@ async def pre_confirmation_node(state: dict) -> dict:
             confirmation_text = await _generate_confirmation_message(snapshot)
             if not confirmation_text:
                 raise ValueError("Empty LLM response")
-        except Exception:
+        except RuntimeError:
             logger.warning("Using fallback confirmation message")
             confirmation_text = _fallback_confirmation(state)
 
@@ -198,8 +220,8 @@ async def pre_confirmation_node(state: dict) -> dict:
             speech_ai_text=confirmation_text,
         )
 
-    except Exception:
-        logger.exception("pre_confirmation_node crashed")
+    except RuntimeError as e:
+        logger.exception("pre_confirmation_node crashed", extra={"error": str(e)})
 
         return update_state(
             state,

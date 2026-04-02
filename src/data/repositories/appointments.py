@@ -7,6 +7,8 @@ from src.data.models.postgres.appointment import Appointment
 from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
 
+from sqlalchemy.exc import SQLAlchemyError
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,8 +70,8 @@ async def get_appointment_by_id(
             )
 
         return appointment
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch appointment by ID",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
@@ -134,8 +136,8 @@ async def get_appointments(
             extra={"count": len(appointments), "page": page},
         )
         return appointments
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch appointments",
             extra={"page": page, "page_size": page_size, "error": str(e)},
         )
@@ -160,8 +162,8 @@ async def get_instance_by_id(db: AsyncSession, id: int) -> Appointment | None:
             )
 
         return appointment
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch appointment instance by ID",
             extra={"appointment_id": id, "error": str(e)},
         )

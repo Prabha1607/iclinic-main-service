@@ -7,6 +7,8 @@ from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import SlotStatus
 from src.schemas.available_slots import AvailableSlotCreate
 
+from sqlalchemy.exc import SQLAlchemyError
+
 logger = logging.getLogger(__name__)
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -46,8 +48,8 @@ async def get_provider_slots_repo(
             extra={"provider_id": provider_id, "count": len(slots)},
         )
         return slots
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch available slots for provider",
             extra={"provider_id": provider_id, "error": str(e)},
         )
@@ -85,8 +87,8 @@ async def get_slots_by_provider(
             extra={"provider_id": provider_id, "count": len(slots)},
         )
         return slots
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch slots for provider",
             extra={"provider_id": provider_id, "error": str(e)},
         )
@@ -151,8 +153,8 @@ async def create_slots_for_provider(
             },
         )
         return inserted, skipped
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to create slots for provider",
             extra={
                 "provider_id": provider_id,

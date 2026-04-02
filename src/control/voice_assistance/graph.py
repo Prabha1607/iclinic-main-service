@@ -1,4 +1,12 @@
+"""
+LangGraph workflow definitions for the iClinic voice assistance module.
+
+Defines and compiles two graphs: ``build_call_graph`` for initiating outbound
+calls, and ``build_response_graph`` for processing in-progress call turns
+through STT, intent routing, booking, cancellation, and TTS nodes.
+"""
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from src.control.voice_assistance.routes import (
     route_after_cancellation_slot_selection,
@@ -8,7 +16,7 @@ from src.control.voice_assistance.routes import (
     route_after_pre_confirmation,
     route_after_service_intent,
     route_after_booking_slot_selection,
-    route_after_query_intent,          
+    route_after_query_intent,
 )
 from .nodes.book_appointment_node import book_appointment_node
 from .nodes.booking_confirmation_node import booking_confirmation_node
@@ -24,12 +32,21 @@ from .nodes.identity_confirmation_node import identity_confirmation_node
 from .nodes.pre_confirmation_node import pre_confirmation_node
 from .nodes.service_intent_node import service_intent_node
 from .nodes.stt_node import stt_node
-from .nodes.query_intent_node import query_intent_node  
+from .nodes.query_intent_node import query_intent_node
 from .nodes.tts_node import tts_node
 from .state import VoiceState
 
 
-def build_call_graph():
+def build_call_graph() -> CompiledStateGraph:
+    """
+    Build and compile the outbound call initiation graph.
+
+    Constructs a minimal single-node workflow that runs ``call_init_node``
+    and terminates, used to place the initial Twilio outbound call.
+
+    Returns:
+        CompiledStateGraph: The compiled LangGraph workflow for call initiation.
+    """
     workflow = StateGraph(VoiceState)
     workflow.add_node("call_init", call_init_node)
     workflow.set_entry_point("call_init")
@@ -37,12 +54,23 @@ def build_call_graph():
     return workflow.compile()
 
 
-def build_response_graph():
+def build_response_graph() -> CompiledStateGraph:
+    """
+    Build and compile the in-progress call response graph.
+
+    Constructs the full multi-node workflow that processes each voice turn:
+    STT transcription → query intent routing → service intent, identity
+    confirmation, clarification, doctor selection, slot selection, booking,
+    cancellation, general assistance, and TTS synthesis.
+
+    Returns:
+        CompiledStateGraph: The compiled LangGraph workflow for call response handling.
+    """
     workflow = StateGraph(VoiceState)
 
     # ── nodes ──────────────────────────────────────────────────────────────
     workflow.add_node("stt", stt_node)
-    workflow.add_node("query_intent", query_intent_node)          
+    workflow.add_node("query_intent", query_intent_node)
     workflow.add_node("service_intent", service_intent_node)
     workflow.add_node("identity_confirmation", identity_confirmation_node)
     workflow.add_node("clarify", clarify_node)
@@ -59,13 +87,12 @@ def build_response_graph():
 
     # ── entry ──────────────────────────────────────────────────────────────
     workflow.set_entry_point("stt")
-
-    workflow.add_edge("stt", "query_intent")                      
+    workflow.add_edge("stt", "query_intent")
 
     # ── conditional edges ──────────────────────────────────────────────────
     workflow.add_conditional_edges(
-        "query_intent",                                           
-        route_after_query_intent,                                 
+        "query_intent",
+        route_after_query_intent,
         {
             "service_intent": "service_intent",
             "identity_confirmation": "identity_confirmation",
@@ -138,7 +165,7 @@ def build_response_graph():
         },
     )
 
-    # ── edges ────────────────────────────────────────────────────────
+    # ── edges ──────────────────────────────────────────────────────────────
     workflow.add_edge("book_appointment", "booking_confirmation")
     workflow.add_edge("booking_confirmation", "tts")
     workflow.add_edge("cancel_appointment", "cancel_confirmation")
@@ -146,4 +173,4 @@ def build_response_graph():
     workflow.add_edge("general_assistance", "tts")
     workflow.add_edge("tts", END)
 
-    return workflow.compile()
+    return workflow.compile()   

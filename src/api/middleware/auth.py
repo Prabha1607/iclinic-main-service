@@ -1,9 +1,16 @@
+"""
+Authorization middleware for the iClinic REST API.
+
+Enforces Bearer token authentication on all incoming requests,
+bypassing checks only for explicitly whitelisted public paths
+and OPTIONS preflight requests.
+"""
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
-
 from src.config.jwt_handler import verify_access_token
+from fastapi import HTTPException
 
 
 class AuthorizationMiddleware(BaseHTTPMiddleware):
@@ -59,7 +66,7 @@ class AuthorizationMiddleware(BaseHTTPMiddleware):
 
         try:
             access_payload = await verify_access_token(token)
-        except Exception:
+        except HTTPException:
             access_payload = None
 
         if access_payload is None:

@@ -1,3 +1,8 @@
+"""Business logic for provider slot management.
+
+Provides service-layer functions for changing slot statuses, fetching
+slots by provider, and bulk-creating slots with duplicate detection.
+"""
 from src.data.models.postgres.available_slot import AvailableSlot
 from src.data.models.postgres.ENUM import SlotStatus
 from src.data.repositories.available_slots import (
@@ -17,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 async def change_slot_status(db, slot_id: int, new_status: SlotStatus) -> None:
+    """Update the status of a single availability slot.
+
+    Args:
+        db: Async SQLAlchemy session dependency.
+        slot_id: PK of the slot to update.
+        new_status: Target ``SlotStatus`` enum value.
+
+    Raises:
+        Exception: Propagates any database failure after logging.
+    """
     logger.info(
         "Changing slot status",
         extra={"slot_id": slot_id, "new_status": new_status},
@@ -27,8 +42,8 @@ async def change_slot_status(db, slot_id: int, new_status: SlotStatus) -> None:
             "Slot status updated successfully",
             extra={"slot_id": slot_id, "new_status": new_status},
         )
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to update slot status",
             extra={"slot_id": slot_id, "new_status": new_status, "error": str(e)},
         )
@@ -36,6 +51,18 @@ async def change_slot_status(db, slot_id: int, new_status: SlotStatus) -> None:
 
 
 async def get_provider_slots_service(db, provider_id: int) -> list[AvailableSlotResponse]:
+    """Retrieve all active slots for a given provider.
+
+    Args:
+        db: Async SQLAlchemy session dependency.
+        provider_id: ID of the provider whose slots to fetch.
+
+    Returns:
+        List of ``AvailableSlotResponse`` Pydantic models.
+
+    Raises:
+        Exception: Propagates any database failure after logging.
+    """
     logger.info("Fetching slots for provider", extra={"provider_id": provider_id})
     try:
         slots = await get_slots_by_provider(db=db, provider_id=provider_id)
@@ -44,8 +71,8 @@ async def get_provider_slots_service(db, provider_id: int) -> list[AvailableSlot
             extra={"provider_id": provider_id, "count": len(slots)},
         )
         return slots
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to fetch slots for provider",
             extra={"provider_id": provider_id, "error": str(e)},
         )
@@ -58,6 +85,22 @@ async def create_provider_slots_service(
     payload: AvailableSlotBulkCreate,
     created_by: int,
 ) -> AvailableSlotBulkResponse:
+    """Bulk-create availability slots for a provider, skipping duplicates.
+
+    Args:
+        db: Async SQLAlchemy session dependency.
+        provider_id: ID of the provider the slots belong to.
+        payload: Bulk-create payload containing a list of slot definitions.
+        created_by: ID of the admin user initiating the creation.
+
+    Returns:
+        ``AvailableSlotBulkResponse`` containing the created slots and a
+        count of skipped duplicates.
+
+    Raises:
+        ValueError: If ``payload.slots`` is empty.
+        Exception: Propagates any database failure after logging.
+    """
     logger.info(
         "Creating slots for provider",
         extra={
@@ -83,8 +126,8 @@ async def create_provider_slots_service(
         )
     except ValueError:
         raise
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to create slots for provider",
             extra={"provider_id": provider_id, "created_by": created_by, "error": str(e)},
         )

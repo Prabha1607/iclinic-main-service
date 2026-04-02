@@ -1,19 +1,36 @@
+"""
+REST route handlers for appointment type management in the iClinic main service.
+
+Exposes endpoints to retrieve, create, and partially update appointment types
+used during appointment scheduling.
+"""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.rest.dependencies import get_db
-from src.core.services.appointment_types import get_appointment_types,create_appointment_type_service, update_appointment_type_service
-from src.schemas.appointment_types import AppointmentTypeResponse,AppointmentTypeCreate, AppointmentTypeUpdate
-import logging
+from src.core.services.appointment_types import (
+    create_appointment_type_service,
+    get_appointment_types,
+    update_appointment_type_service,
+)
+from src.schemas.appointment_types import (
+    AppointmentTypeCreate,
+    AppointmentTypeResponse,
+    AppointmentTypeUpdate,
+)
 
 router = APIRouter(prefix="/appointment-types", tags=["Appointment Types"])
 
 logger = logging.getLogger(__name__)
 
+
 @router.get("", response_model=list[AppointmentTypeResponse])
 async def fetch_appointment_types(
-    request : Request,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[AppointmentTypeResponse]:
     """
     Retrieve all available appointment types.
 
@@ -22,7 +39,8 @@ async def fetch_appointment_types(
     appointment scheduling.
 
     Args:
-        db: Async database session injected by ``get_db``.
+        request: The incoming HTTP request.
+        db:      Async database session injected by ``get_db``.
 
     Returns:
         list[AppointmentTypeResponse]: All configured appointment types.
@@ -39,23 +57,20 @@ async def fetch_appointment_types(
             extra={"count": len(appointment_types)},
         )
         return appointment_types
-    except Exception as e:
-        logger.error("Failed to fetch appointment types", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to fetch appointment types", extra={"error": str(e)})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch appointment types",
         )
-    
-@router.post(
-    "/add",
-    response_model=AppointmentTypeResponse,
-    status_code=status.HTTP_201_CREATED
-)
+
+
+@router.post("/add", response_model=AppointmentTypeResponse, status_code=status.HTTP_201_CREATED)
 async def create_appointment_type(
-    request : Request,
+    request: Request,
     payload: AppointmentTypeCreate,
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+) -> AppointmentTypeResponse:
     """
     Create a new appointment type.
 
@@ -68,27 +83,25 @@ async def create_appointment_type(
     - Timestamps (`created_at`, `updated_at`) are automatically generated.
 
     Args:
-        payload (AppointmentTypeCreate): Input data for creating the appointment type.
-        db (AsyncSession): Database session dependency.
+        request: The incoming HTTP request.
+        payload: Input data for creating the appointment type.
+        db:      Async database session injected by ``get_db``.
 
     Returns:
         AppointmentTypeResponse: The newly created appointment type.
 
     Raises:
-        HTTPException:
-            - 400 Bad Request: If validation fails or duplicate entry exists.
-            - 500 Internal Server Error: If creation fails due to server issues.
+        HTTPException 400: If validation fails or duplicate entry exists.
+        HTTPException 500: If creation fails due to server issues.
     """
     try:
         logger.info("Creating appointment type", extra={"payload": payload.model_dump()})
 
-        appointment_type = await create_appointment_type_service(
-            db, payload
-        )
+        appointment_type = await create_appointment_type_service(db, payload)
 
         logger.info(
             "Appointment type created successfully",
-            extra={"appointment_type_id": appointment_type.id}
+            extra={"appointment_type_id": appointment_type.id},
         )
 
         return appointment_type
@@ -96,50 +109,44 @@ async def create_appointment_type(
     except ValueError as ve:
         logger.warning(
             "Business validation failed while creating appointment type",
-            extra={"error": str(ve)}
+            extra={"error": str(ve)},
         )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(ve)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
 
-    except Exception as e:
+    except RuntimeError:
         logger.exception("Unexpected error while creating appointment type")
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create appointment type"
+            detail="Failed to create appointment type",
         )
-    
-@router.patch(
-    "/{appointment_type_id}",
-    response_model=AppointmentTypeResponse,
-)
+
+
+@router.patch("/{appointment_type_id}", response_model=AppointmentTypeResponse)
 async def update_appointment_type(
-    request : Request,
+    request: Request,
     appointment_type_id: int,
     payload: AppointmentTypeUpdate,
     db: AsyncSession = Depends(get_db),
-):
+) -> AppointmentTypeResponse:
     """
     Partially update an existing appointment type.
- 
+
     Only the fields provided in the request body are updated; all other
     fields retain their current values (PATCH semantics).
- 
+
     Args:
+        request:             The incoming HTTP request.
         appointment_type_id: Primary key of the appointment type to update.
-        payload (AppointmentTypeUpdate): Fields to update (all optional).
-        db (AsyncSession): Database session dependency.
- 
+        payload:             Fields to update (all optional).
+        db:                  Async database session injected by ``get_db``.
+
     Returns:
         AppointmentTypeResponse: The updated appointment type.
- 
+
     Raises:
-        HTTPException:
-            - 400 Bad Request: If the payload contains no fields.
-            - 404 Not Found: If no appointment type exists for the given ID.
-            - 500 Internal Server Error: If the update fails unexpectedly.
+        HTTPException 400: If the payload contains no fields.
+        HTTPException 404: If no appointment type exists for the given ID.
+        HTTPException 500: If the update fails unexpectedly.
     """
     logger.info(
         "Update appointment type requested",
@@ -151,33 +158,30 @@ async def update_appointment_type(
             appointment_type_id=appointment_type_id,
             payload=payload,
         )
- 
+
         if appointment_type is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Appointment type {appointment_type_id} not found",
             )
- 
+
         logger.info(
             "Appointment type updated successfully",
             extra={"appointment_type_id": appointment_type_id},
         )
         return appointment_type
- 
+
     except HTTPException:
         raise
- 
+
     except ValueError as ve:
         logger.warning(
             "Business validation failed while updating appointment type",
             extra={"error": str(ve)},
         )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(ve),
-        )
- 
-    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+    except RuntimeError:
         logger.exception("Unexpected error while updating appointment type")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

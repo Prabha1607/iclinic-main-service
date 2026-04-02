@@ -1,5 +1,13 @@
+"""
+LangGraph node for cancelling appointments in the iClinic voice assistance module.
+
+Handles the cancellation confirmation step: confirms the patient's intent
+via LLM, marks the appointment as cancelled in the database, and returns
+the appropriate spoken response for TTS.
+"""
 import logging
 from datetime import UTC, datetime
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.control.voice_assistance.utils.llm_utils import invokeLLM
 from src.control.voice_assistance.prompts.cancel_appointment_node_prompt import (
@@ -68,10 +76,11 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
             raw_decision,
             decision,
         )
-    except Exception:
+    except RuntimeError as e:
         logger.exception(
             "LLM invocation failed during cancellation confirmation for appointment_id=%s.",
             appointment_data.get("id"),
+            extra={"error": str(e)},
         )
         return update_state(
             state,
@@ -98,10 +107,11 @@ async def _handle_ask_confirm(state: dict, user_text: str) -> dict:
             "Appointment appointment_id=%s successfully cancelled in the database.",
             appointment_data["id"],
         )
-    except Exception:
+    except SQLAlchemyError as e:
         logger.exception(
             "Database cancellation failed for appointment_id=%s.",
             appointment_data.get("id"),
+            extra={"error": str(e)},
         )
         return update_state(
             state,

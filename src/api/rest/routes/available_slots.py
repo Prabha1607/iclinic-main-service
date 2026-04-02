@@ -1,5 +1,14 @@
+"""
+REST route handlers for provider slot management in the iClinic main service.
+
+Exposes endpoints to retrieve and bulk-create available appointment slots
+for a given provider.
+"""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.api.rest.dependencies import get_current_user, get_db
 from src.core.services.available_slots import (
     create_provider_slots_service,
@@ -10,17 +19,17 @@ from src.schemas.available_slots import (
     AvailableSlotBulkResponse,
     AvailableSlotResponse,
 )
-import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/slots", tags=["Slots"])
 
+
 @router.get("/providers/{provider_id}", response_model=list[AvailableSlotResponse])
 async def get_provider_slots(
     provider_id: int,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[AvailableSlotResponse]:
     """
     Retrieve all available slots for a given provider.
 
@@ -51,7 +60,7 @@ async def get_provider_slots(
         return slots
     except HTTPException:
         raise
-    except Exception:
+    except RuntimeError:
         logger.exception(
             "Unexpected error while fetching slots for provider_id=%d", provider_id
         )
@@ -71,7 +80,7 @@ async def create_provider_slots(
     payload: AvailableSlotBulkCreate,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
-):
+) -> AvailableSlotBulkResponse:
     """
     Bulk-create available appointment slots for a given provider.
 
@@ -129,7 +138,7 @@ async def create_provider_slots(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         )
-    except Exception:
+    except RuntimeError:
         logger.exception(
             "Unexpected error creating slots for provider_id=%d by user_id=%s",
             provider_id,

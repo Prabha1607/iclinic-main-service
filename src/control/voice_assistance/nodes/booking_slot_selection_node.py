@@ -1,7 +1,17 @@
-from __future__ import annotations
+"""
+LangGraph node for guiding slot selection during appointment booking
+in the iClinic voice assistance module.
+
+Manages a multi-stage conversational flow (ask_date → ask_period → ask_time)
+to help a patient choose an available appointment slot with their selected
+doctor, using LLM calls for natural language understanding and DB queries
+for live slot availability.
+"""
+
 import logging
 import re
 from datetime import timezone, timedelta
+from sqlalchemy.exc import SQLAlchemyError
 from src.control.voice_assistance.utils.llm_utils import invokeLargeLLM_json
 from src.data.clients.postgres_client import AsyncSessionLocal
 from src.data.models.postgres.available_slot import AvailableSlot
@@ -9,6 +19,7 @@ from src.data.models.postgres.ENUM import SlotStatus
 from src.control.voice_assistance.utils.date_utils import (
     today_ist, now_time_ist, format_date, format_time,
 )
+from src.data.repositories.generic_crud import bulk_get_instance
 from src.control.voice_assistance.utils.state_utils import update_state
 
 logger = logging.getLogger(__name__)
@@ -26,7 +37,7 @@ async def _fetch_available_dates(doctor_id: int) -> list[str]:
     async with AsyncSessionLocal() as db:
         today    = today_ist()
         now_time = now_time_ist()
-        from src.data.repositories.generic_crud import bulk_get_instance
+        
         slots = await bulk_get_instance(AvailableSlot, db, provider_id=doctor_id, is_active=True)
         dates = sorted({
             s.availability_date.isoformat()
@@ -43,7 +54,6 @@ async def _fetch_periods_for_date(doctor_id: int, date_iso: str) -> list[str]:
     async with AsyncSessionLocal() as db:
         today    = today_ist()
         now_time = now_time_ist()
-        from src.data.repositories.generic_crud import bulk_get_instance
         from datetime import date as dt_date
         target = dt_date.fromisoformat(date_iso)
         slots = await bulk_get_instance(
@@ -67,7 +77,6 @@ async def _fetch_all_times_for_date(doctor_id: int, date_iso: str) -> list[dict]
     async with AsyncSessionLocal() as db:
         today    = today_ist()
         now_time = now_time_ist()
-        from src.data.repositories.generic_crud import bulk_get_instance
         from datetime import date as dt_date
         target = dt_date.fromisoformat(date_iso)
         slots = await bulk_get_instance(
@@ -103,7 +112,7 @@ def _period_from_time(time_str: str) -> str:
     try:
         h = int(time_str.split(":")[0])
         return "morning" if h < 12 else "afternoon" if h < 17 else "evening"
-    except Exception:
+    except ValueError:
         return "afternoon"
 
 
@@ -172,8 +181,8 @@ OUTPUT FORMAT:
         ])
         if isinstance(parsed, dict):
             return _normalise_time(parsed.get("time"))
-    except Exception as e:
-        logger.warning(f"_parse_time_with_llm failed | error={e}")
+    except (RuntimeError, ValueError) as e:
+        logger.exception(f"_parse_time_with_llm failed | error={e}")
     return None
 
 
@@ -227,7 +236,7 @@ def _format_dates(date_isos: list[str]) -> str:
     for d in date_isos:
         try:
             out.append(format_date(dt_date.fromisoformat(d)))
-        except Exception:
+        except ValueError:
             out.append(d)
     return ", ".join(out)
 
@@ -236,7 +245,7 @@ def _date_display(date_iso: str) -> str:
     from datetime import date as dt_date
     try:
         return format_date(dt_date.fromisoformat(date_iso))
-    except Exception:
+    except ValueError:
         return date_iso
 
 
@@ -460,8 +469,8 @@ async def _handle_ask_date(
 ) -> dict:
     try:
         dates = await _fetch_available_dates(doctor_id)
-    except Exception as e:
-        logger.error(f"ask_date: fetch failed | {e}")
+    except SQLAlchemyError as e:
+        logger.exception(f"ask_date: fetch failed | {e}")
         return _fallback_state(state, history)
 
     if not dates:
@@ -524,8 +533,8 @@ async def _handle_ask_period(
 ) -> dict:
     try:
         periods = await _fetch_periods_for_date(doctor_id, confirmed_date)
-    except Exception as e:
-        logger.error(f"ask_period: fetch failed | {e}")
+    except SQLAlchemyError as e:
+        logger.exception(f"ask_period: fetch failed | {e}")
         return _fallback_state(state, history)
 
     if not periods:
@@ -580,8 +589,8 @@ async def _handle_ask_time(
 ) -> dict:
     try:
         slots = await _fetch_all_times_for_date(doctor_id, confirmed_date)
-    except Exception as e:
-        logger.error(f"ask_time: fetch failed | {e}")
+    except SQLAlchemyError as e:
+        logger.exception(f"ask_time: fetch failed | {e}")
         return _fallback_state(state, history)
 
     if not slots:
@@ -772,8 +781,26 @@ def _no_slots_state(state: dict, doctor_name: str, history: list[dict]) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN NODE
 # ═══════════════════════════════════════════════════════════════════════════════
-
 async def booking_slot_selection_node(state: dict) -> dict:
+    """
+    LangGraph node that guides the patient through appointment slot selection.
+
+    Manages three sequential stages — ``ask_date``, ``ask_period``, and
+    ``ask_time`` — advancing through each as the patient narrows their
+    preferred slot. Handles period switching, time-hint pre-matching, and
+    LLM fallback parsing for garbled STT input. Short-circuits if slot
+    selection is already complete and no change was requested.
+
+    Args:
+        state: The current ``VoiceState`` dict containing doctor identity,
+               conversation history, current slot stage, and any previously
+               confirmed date, period, or time selections.
+
+    Returns:
+        dict: Updated state with the current slot stage, selected slot details,
+        ``speech_ai_text`` for TTS, and ``booking_slot_selection_completed``
+        set to ``True`` when a slot has been confirmed.
+    """
 
     # Short-circuit: already done and no change requested
     if state.get("booking_slot_selection_completed") and not state.get("user_change_request"):

@@ -8,7 +8,7 @@ Changes from v4:
   - GREETING_PREFIX removed entirely — LLM generates greeting naturally
 """
 
-from __future__ import annotations
+
 
 
 # ---------------------------------------------------------------------------

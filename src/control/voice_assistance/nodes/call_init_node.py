@@ -1,3 +1,9 @@
+"""
+LangGraph node for initiating outbound Twilio calls in the iClinic voice assistance module.
+
+Places the initial outbound call via the Twilio REST client and stores
+the resulting call SID in state for use by subsequent nodes.
+"""
 import logging
 from twilio.rest import Client
 from src.config.settings import settings
@@ -33,7 +39,7 @@ async def call_init_node(state: dict) -> dict:
         logger.info("call_init_node: call placed", extra={"call_sid": call.sid})
         return {**state, "call_sid": call.sid}
 
-    except Exception as e:
-        logger.error("call_init_node: failed to place call", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("call_init_node: failed to place call", extra={"error": str(e)})
         return {**state, "speech_error": str(e)}
     
