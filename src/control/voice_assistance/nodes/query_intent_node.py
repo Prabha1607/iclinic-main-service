@@ -4,6 +4,7 @@ Classifies the patient's utterance to detect change requests (doctor, date,
 or slot) and out-of-context queries, then routes accordingly within the flow.
 """
 import logging
+from src.control.voice_assistance.utils.state_utils import update_global_history
 from src.control.voice_assistance.prompts.query_intent_node_prompt import build_intent_system, build_out_of_context_prompt
 from src.control.voice_assistance.utils.llm_utils import invokeLLM_json
 from src.control.voice_assistance.utils.state_utils import reset_from_date, reset_from_doctor, reset_from_slot
@@ -105,7 +106,9 @@ async def query_intent_node(state: dict) -> dict:
             logger.info("Doctor change requested but no doctor selected yet")
             if active_node == "doctor_selection":
                 return base_state
-            return {**base_state, "speech_ai_text": "You haven't selected a doctor yet — let's go ahead and pick one now.", "speak_only": True}
+            ai_text = "You haven't selected a doctor yet — let's go ahead and pick one now."
+            update_global_history(base_state, role="assistant", message=ai_text, node="query_intent_node")
+            return {**base_state, "speech_ai_text": ai_text, "speak_only": True}
         logger.info("Doctor change detected — resetting from doctor")
         return reset_from_doctor(base_state, cleaned)
 
@@ -114,7 +117,9 @@ async def query_intent_node(state: dict) -> dict:
             logger.info("Date change requested but no date selected yet")
             if active_node == "booking_slot_selection":
                 return base_state
-            return {**base_state, "speech_ai_text": "No date has been chosen yet — let's continue and pick one.", "speak_only": True}
+            ai_text = "No date has been chosen yet — let's continue and pick one."
+            update_global_history(base_state, role="assistant", message=ai_text, node="query_intent_node")
+            return {**base_state, "speech_ai_text": ai_text, "speak_only": True}
         logger.info("Date change detected — resetting from date")
         return reset_from_date(base_state, cleaned)
 
@@ -123,7 +128,9 @@ async def query_intent_node(state: dict) -> dict:
             logger.info("Time change requested but no slot selected yet")
             if active_node == "booking_slot_selection":
                 return base_state
-            return {**base_state, "speech_ai_text": "No time has been chosen yet — let's continue and pick one.", "speak_only": True}
+            ai_text = "No time has been chosen yet — let's continue and pick one."
+            update_global_history(base_state, role="assistant", message=ai_text, node="query_intent_node")
+            return {**base_state, "speech_ai_text": ai_text, "speak_only": True}
         logger.info("Time change detected — resetting from slot")
         return reset_from_slot(base_state, cleaned)
 

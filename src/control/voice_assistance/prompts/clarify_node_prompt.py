@@ -91,7 +91,7 @@ APPOINTMENT TYPE HINTS:
 
 FIRST TURN (when user message is "BEGIN_INTAKE"):
   Generate a warm opening greeting asking what brings the patient in.
-  Example question value: "Hello! Thank you for calling. What brings you in today — what can we help you with?"
+  Example question value: "Thanks for confirming. What brings you in today — what can we help you with?"
 
 RULES:
   - Ask ONE question per turn inside the "question" field.
@@ -218,6 +218,5 @@ Respond with ONLY: YES or NO
 FALLBACK_RESPONSE  = "I'm so sorry, something went wrong on our end. Please try again."
 DEFAULT_INTENT     = "general_check_up"
 
-# Sent as the first user message when history is empty so the LLM
-# generates a warm opening greeting instead of waiting for user input.
+
 FIRST_TURN_TRIGGER = "BEGIN_INTAKE"

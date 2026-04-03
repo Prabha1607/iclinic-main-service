@@ -5,12 +5,8 @@ Iteratively asks the patient questions to understand their medical intent,
 then maps the gathered information to an appointment-type ID.
 """
 
-
 import asyncio
-
 import logging
-
-
 from src.control.voice_assistance.prompts.clarify_node_prompt import (
     DEFAULT_INTENT,
     EMERGENCY_SYSTEM_PROMPT,
@@ -262,3 +258,4 @@ async def clarify_node(state: dict) -> dict:
             clarify_completed=False,  
             speech_error=str(exc),
         )
+    

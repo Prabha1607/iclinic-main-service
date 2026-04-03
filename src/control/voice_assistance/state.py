@@ -23,7 +23,7 @@ class VoiceState(TypedDict):
     speech_ai_text: str | None
     speech_error: str | None
     speak_only: bool | None
-     
+
     # ── Top-level routing ─────────────────────────────────────────────────────
     service_type: str | None
     service_intent_history: list[dict[str, str]] | None
@@ -110,6 +110,9 @@ class VoiceState(TypedDict):
     cancellation_complete: bool | None
     cancellation_awaiting_fresh_input: bool | None
     cancellation_confirmed: bool | None
+
+    # ── Global conversation history ─────────────────────────────────────────────
+    global_conversation_history: list[dict[str, str]] | None
 
     # ── Shared ─────────────────────────────────────────────────────────
     user_change_request: str | None

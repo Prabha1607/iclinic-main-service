@@ -206,6 +206,7 @@ def _find_slot_by_time(slots: list[dict], time_str: str) -> dict | None:
         if s["start_time"] == normalised:
             return s
 
+
     def _mins(t: str) -> int:
         h, m = t.split(":")
         return int(h) * 60 + int(m)
@@ -312,10 +313,9 @@ async def _call_ask_period(
 ) -> dict | None:
     today    = today_ist()
     now_time = now_time_ist()
-    is_today = (confirmed_date_iso == today.isoformat())
 
     past_period_note = ""
-    if is_today:
+    if confirmed_date_iso == today.isoformat():
         h = now_time.hour
         past = []
         if h >= 12:
@@ -383,10 +383,9 @@ async def _call_ask_time(
 ) -> dict | None:
     today    = today_ist()
     now_time = now_time_ist()
-    is_today = (confirmed_date_iso == today.isoformat())
 
     current_time_note = ""
-    if is_today:
+    if confirmed_date_iso == today.isoformat():
         current_time_note = (
             f"\nCurrent time is {now_time.strftime('%H:%M')} IST. "
             f"If the patient asks for a time earlier than {now_time.strftime('%H:%M')} today, "

@@ -6,9 +6,7 @@ notification email to the patient. Email failures are logged and swallowed
 so the pipeline continues uninterrupted.
 """
 import logging
-
 from fastapi_mail import FastMail, MessageSchema
-
 from src.control.voice_assistance.config import conf
 
 logger = logging.getLogger(__name__)
@@ -98,3 +96,4 @@ async def cancel_confirmation_node(state: dict) -> dict:
         )
 
     return state
+

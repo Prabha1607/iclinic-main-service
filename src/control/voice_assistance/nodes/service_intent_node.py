@@ -5,6 +5,7 @@ through conversational LLM interaction, then exposes the resolved
 service_type for downstream routing.
 """
 import logging
+from src.control.voice_assistance.utils.state_utils import update_global_history
 from src.control.voice_assistance.prompts.service_intent_node_prompt import (
     SERVICE_INTENT_PROMPT,
     SERVICE_INTENT_VERIFIER_PROMPT,
@@ -64,19 +65,27 @@ async def service_intent_node(state: dict) -> dict:
 
         history.append({"role": "assistant", "content": ai_text})
 
+        # Only log to global history when AI actually speaks to the user
+        if not service_type:
+            update_global_history(state, role="assistant", message=ai_text, node="service_intent_node")
+
         return {
             **state,
             "active_node": "service_intent",
             "service_intent_history": history,
             "speech_ai_text": ai_text if not service_type else None,
             "service_type": service_type,
+            "global_conversation_history": state.get("global_conversation_history", []),
         }
 
     except RuntimeError as e:
         logger.exception("service_intent_node: failed to process intent", extra={"error": str(e)})
+        error_text = "Something went wrong. Please try again."
+        update_global_history(state, role="assistant", message=error_text, node="service_intent_node")
         return {
             **state,
             "active_node": "service_intent",
-            "speech_ai_text": "Something went wrong. Please try again.",
+            "speech_ai_text": error_text,
             "speech_error": str(e),
+            "global_conversation_history": state.get("global_conversation_history", []),
         }

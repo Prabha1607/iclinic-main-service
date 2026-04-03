@@ -3,12 +3,12 @@
 Normalises raw speech input received from Twilio before passing it to the
 query intent classifier for further processing.
 """
+from src.control.voice_assistance.utils.state_utils import update_global_history
 import logging
 
 logger = logging.getLogger(__name__)
 
 _EMPTY_TEXT = None
-
 async def stt_node(state: dict) -> dict:
     """
     Captures and normalises raw speech input from Twilio.
@@ -23,5 +23,7 @@ async def stt_node(state: dict) -> dict:
     cleaned = " ".join(user_text.split()).strip()
     logger.info(f"STT captured | text='{cleaned}'")
 
-    return {**state, "speech_user_text": cleaned}
+    update_global_history(state, role="user", message=cleaned, node="stt_node")
+
+    return {**state, "speech_user_text": cleaned, "global_conversation_history": state.get("global_conversation_history", [])}
 

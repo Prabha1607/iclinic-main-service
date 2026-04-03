@@ -4,6 +4,7 @@ Provides factory and mutation helpers for building, updating, and partially
 resetting the ``VoiceState`` dict as the graph transitions between nodes.
 """
 from typing import Any
+from src.control.voice_assistance.state import VoiceState
 
 def update_state(state: dict, **kwargs: Any) -> dict:
     """Return a new state dict with the given key-value pairs applied.
@@ -328,3 +329,13 @@ def confirm_doctor_return(
     if reset_slots:
         result.update(reset_slot_state())
     return result
+
+def update_global_history(state: VoiceState, role: str, message: str, node: str):
+    if state.get("global_conversation_history") is None:
+        state["global_conversation_history"] = []
+
+    state["global_conversation_history"].append({
+        "role": role,
+        "message": message,
+        "node": node
+    })
