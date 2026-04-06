@@ -1,7 +1,13 @@
+"""PostgreSQL-backed call session store for the voice assistance flow.
+
+Provides async helpers to create, read, update, and delete per-call session
+state rows in a ``call_sessions`` Postgres table with a configurable TTL.
+"""
 import json
 import logging
 
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.data.clients.postgres_client import AsyncSessionLocal
 
@@ -12,6 +18,7 @@ _table_ensured = False
 
 
 async def ensure_table() -> None:
+    """Create the call_sessions table and its expiry index if they do not exist."""
     global _table_ensured
     if _table_ensured:
         return
@@ -33,7 +40,14 @@ async def ensure_table() -> None:
 
 
 async def get_session(call_sid: str) -> dict | None:
-    await ensure_table()
+    """Retrieve a non-expired session from the database.
+
+    Args:
+        call_sid: Unique Twilio call identifier.
+
+    Returns:
+        Session state dict, or ``None`` if no live session exists.
+    """
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -47,13 +61,21 @@ async def get_session(call_sid: str) -> dict | None:
         if row is None:
             return None
         return json.loads(row[0])
-    except Exception as e:
-        logger.error("[session_store] get_session error: %s", repr(e))
+    except SQLAlchemyError as e:
+        logger.exception("[session_store] get_session error", extra={"error": str(e)})
         return None
 
 
 async def set_session(call_sid: str, state: dict) -> None:
-    await ensure_table()
+    """Persist or refresh the session state for the given call.
+
+    Upserts the session row, extending the expiry by ``_SESSION_TTL_SECONDS``
+    from the current time.
+
+    Args:
+        call_sid: Unique Twilio call identifier.
+        state: Graph state dict to serialise and store.
+    """
     try:
         serialized = json.dumps(state, default=str)
         async with AsyncSessionLocal() as db:
@@ -73,11 +95,15 @@ async def set_session(call_sid: str, state: dict) -> None:
             )
             await db.commit()
         logger.debug("[session_store] Saved session for %s", call_sid)
-    except Exception as e:
-        logger.error("[session_store] set_session error: %s", repr(e))
+    except SQLAlchemyError as e:
+        logger.exception("[session_store] set_session error", extra={"error": str(e)})
 
 async def delete_session(call_sid: str) -> None:
-    await ensure_table()
+    """Delete the session row for the given call, if present.
+
+    Args:
+        call_sid: Unique Twilio call identifier.
+    """
     try:
         async with AsyncSessionLocal() as db:
             await db.execute(
@@ -86,12 +112,16 @@ async def delete_session(call_sid: str) -> None:
             )
             await db.commit()
         logger.info("[session_store] Deleted session for %s", call_sid)
-    except Exception as e:
-        logger.error("[session_store] delete_session error: %s", repr(e))
+    except SQLAlchemyError as e:
+        logger.exception("[session_store] delete_session error", extra={"error": str(e)})
 
 
 async def purge_expired() -> int:
-    await ensure_table()
+    """Delete all expired session rows from the database.
+
+    Returns:
+        Number of rows deleted.
+    """
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -102,8 +132,8 @@ async def purge_expired() -> int:
         if count:
             logger.info("[session_store] Purged %d expired sessions", count)
         return count
-    except Exception as e:
-        logger.error("[session_store] purge_expired error: %s", repr(e))
+    except SQLAlchemyError as e:
+        logger.exception("[session_store] purge_expired error", extra={"error": str(e)})
         return 0
     
 

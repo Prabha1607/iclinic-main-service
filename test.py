@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sys
 
 if sys.platform.startswith("win"):
@@ -8,6 +9,8 @@ from src.control.voice_assistance.graph import build_response_graph
 from src.control.voice_assistance.utils.state_utils import fresh_state
 from src.core.services.appointment_types import get_appointment_types
 from src.data.clients.postgres_client import AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
 
 response_graph = build_response_graph()
 
@@ -25,7 +28,7 @@ async def chat_loop():
         appointment_types_raw = await get_appointment_types(db)
 
     built_appointment_types = _build_appointment_types(appointment_types_raw)
-    print(
+    logger.info(
         f"[debug] loaded {len(built_appointment_types)} appointment types: {list(built_appointment_types.keys())}"
     )
 
@@ -52,7 +55,7 @@ async def chat_loop():
         result = await response_graph.ainvoke(state)
 
         ai_text = result.get("speech_ai_text")
-        print("AI:", ai_text)
+        logger.info("AI: %s", ai_text)
 
         state = result
 

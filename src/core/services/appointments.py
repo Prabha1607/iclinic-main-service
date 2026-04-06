@@ -1,22 +1,23 @@
+"""Business logic for appointment booking, cancellation, and retrieval.
+
+Coordinates between the repository layer, the auth-service client, and the
+FastAPI Mail library to create, update, cancel, and list appointments while
+firing confirmation and cancellation emails.
+"""
 import logging
-from datetime import UTC, datetime
-from fastapi import HTTPException
-from fastapi_mail import FastMail, MessageSchema
-from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import UTC, datetime, timezone
 from src.data.repositories.appointments import (
     create_appointment_repo,
     get_slot_for_update,
     mark_slot_booked,
-)
-from src.control.voice_assistance.config import conf
-from src.data.clients.auth_client import get_full_providers
-from fastapi import HTTPException, status
-from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
-from src.data.repositories.appointments import (
+    mark_completed_appointments_repo,
     get_appointment_by_id,
     get_appointments,
     get_instance_by_id,
 )
+from src.data.clients.auth_client import get_full_providers
+from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
+from src.data.models.postgres.appointment import Appointment
 from src.data.repositories.generic_crud import update_instance
 from src.schemas.appointments import (
     AppointmentResponse,
@@ -29,6 +30,14 @@ logger = logging.getLogger(__name__)
 
 
 async def send_booking_confirmation_email(to_email: str, body: str) -> None:
+    """Send a plain-text booking confirmation email to the patient.
+
+    Args:
+        to_email: Recipient email address.
+        body: Pre-formatted plain-text email body.
+    """
+    from fastapi_mail import FastMail, MessageSchema
+    from src.control.voice_assistance.config import conf
     message = MessageSchema(
         subject="Your Appointment is Confirmed",
         recipients=[to_email],
@@ -41,6 +50,14 @@ async def send_booking_confirmation_email(to_email: str, body: str) -> None:
 
 
 async def send_cancel_cancellation_email(to_email: str, body: str) -> None:
+    """Send a plain-text cancellation notification email to the patient.
+
+    Args:
+        to_email: Recipient email address.
+        body: Pre-formatted plain-text email body.
+    """
+    from fastapi_mail import FastMail, MessageSchema
+    from src.control.voice_assistance.config import conf
     message = MessageSchema(
         subject="Your Appointment has been Cancelled",
         recipients=[to_email],
@@ -60,6 +77,19 @@ def build_cancellation_email_body(
     end_time: str,
     reason: str,
 ) -> str:
+    """Compose a plain-text cancellation email body.
+
+    Args:
+        patient_name: Patient's display name.
+        appointment_type: Type of the cancelled appointment.
+        date: Formatted appointment date string.
+        start_time: Formatted start time string.
+        end_time: Formatted end time string.
+        reason: Cancellation reason (may be ``"Not specified"``).
+
+    Returns:
+        Ready-to-send plain-text email body.
+    """
     lines = [
         f"Dear {patient_name},",
         "",
@@ -91,6 +121,18 @@ def build_booking_email_body(
     instructions: str,
     patient_name: str,
 ) -> str:
+    """Compose a plain-text booking confirmation email body.
+
+    Args:
+        doctor_name: Name of the assigned doctor.
+        slot_display: Human-readable slot description.
+        reason: Patient-stated reason for visit.
+        instructions: Pre-appointment instructions (may be empty).
+        patient_name: Patient's display name.
+
+    Returns:
+        Ready-to-send plain-text email body.
+    """
     lines = [
         f"Dear {patient_name},",
         "",
@@ -116,10 +158,22 @@ def build_booking_email_body(
 
     return "\n".join(lines)
 
-async def insert_appointment_service(
-    db: AsyncSession,
-    appointment_data,
-):
+
+async def insert_appointment_service(db, appointment_data):
+    """Insert a new appointment, atomically marking the slot as booked.
+
+    Args:
+        db: Async SQLAlchemy session dependency.
+        appointment_data: Pydantic model with appointment fields.
+
+    Returns:
+        The newly created ``Appointment`` ORM instance.
+
+    Raises:
+        LookupError: If the slot does not exist.
+        ValueError: If the slot is already booked.
+        Exception: For any other database failure (after rollback).
+    """
     logger.info(
         "Inserting appointment",
         extra={
@@ -130,21 +184,13 @@ async def insert_appointment_service(
     )
 
     try:
-        slot = await get_slot_for_update(
-            db, appointment_data.availability_slot_id
-        )
+        slot = await get_slot_for_update(db, appointment_data.availability_slot_id)
 
         if not slot:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Slot not found",
-            )
+            raise LookupError("Slot not found")
 
         if slot.status == SlotStatus.BOOKED:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Slot already booked",
-            )
+            raise ValueError("Slot already booked")
 
         appointment = await create_appointment_repo(
             db=db,
@@ -152,9 +198,7 @@ async def insert_appointment_service(
         )
 
         await mark_slot_booked(db, slot)
-
         await db.commit()
-
         await db.refresh(appointment)
 
         logger.info(
@@ -167,13 +211,12 @@ async def insert_appointment_service(
 
         return appointment
 
-    except HTTPException:
+    except (LookupError, ValueError):
         await db.rollback()
         raise
 
-    except Exception:
+    except RuntimeError as e:
         await db.rollback()
-
         logger.exception(
             "Failed to insert appointment",
             extra={
@@ -181,22 +224,28 @@ async def insert_appointment_service(
                 "provider_id": appointment_data.provider_id,
             },
         )
+        raise
 
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create appointment",
-        )
-    
-async def update_appointment(
-    appointment_id: int, db: AsyncSession, update_data
-) -> None:
+
+async def update_appointment(appointment_id: int, db, update_data) -> None:
+    """Apply partial updates to an existing appointment.
+
+    Args:
+        appointment_id: PK of the appointment to update.
+        db: Async SQLAlchemy session dependency.
+        update_data: Pydantic model with fields to patch.
+
+    Raises:
+        LookupError: If the appointment does not exist.
+        Exception: For any other database failure.
+    """
     logger.info("Updating appointment", extra={"appointment_id": appointment_id})
     try:
         appointment = await get_instance_by_id(id=appointment_id, db=db)
 
         if not appointment:
             logger.warning("Appointment not found for update", extra={"appointment_id": appointment_id})
-            raise HTTPException(status_code=404, detail="Appointment not found")
+            raise LookupError("Appointment not found")
 
         await update_instance(
             id=appointment_id,
@@ -205,26 +254,37 @@ async def update_appointment(
             **update_data.model_dump(exclude_unset=True),
         )
         logger.info("Appointment updated successfully", extra={"appointment_id": appointment_id})
-    except HTTPException:
+    except LookupError:
         raise
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to update appointment",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
         raise
 
 
-async def cancel_appointment(
-    appointment_id: int, cancellation_reason: str, db: AsyncSession
-) -> None:
+async def cancel_appointment(appointment_id: int, cancellation_reason: str, db) -> None:
+    """Cancel an appointment and record the cancellation reason.
+
+    Silently skips appointments that are already cancelled.
+
+    Args:
+        appointment_id: PK of the appointment to cancel.
+        cancellation_reason: Free-text reason provided by the patient.
+        db: Async SQLAlchemy session dependency.
+
+    Raises:
+        LookupError: If the appointment does not exist.
+        Exception: For any other database failure.
+    """
     logger.info("Cancelling appointment", extra={"appointment_id": appointment_id})
     try:
         appointment = await get_instance_by_id(id=appointment_id, db=db)
 
         if not appointment:
             logger.warning("Appointment not found for cancellation", extra={"appointment_id": appointment_id})
-            raise HTTPException(status_code=404, detail="Appointment not found")
+            raise LookupError("Appointment not found")
 
         if appointment.status == AppointmentStatus.CANCELLED:
             logger.warning(
@@ -243,20 +303,27 @@ async def cancel_appointment(
             is_active=False,
         )
         logger.info("Appointment cancelled successfully", extra={"appointment_id": appointment_id})
-    except HTTPException:
+    except LookupError:
         raise
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to cancel appointment",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
         raise
 
 
-async def get_appointment_by_id_service(
-    db: AsyncSession,
-    appointment_id: int,
-) -> dict | None:
+async def get_appointment_by_id_service(db, appointment_id: int) -> dict | None:
+    """Fetch a single appointment's summary by its ID.
+
+    Args:
+        db: Async SQLAlchemy session dependency.
+        appointment_id: PK of the appointment to retrieve.
+
+    Returns:
+        Dict with patient, appointment-type, date, and time fields,
+        or ``None`` if no matching appointment is found.
+    """
     logger.info("Fetching appointment by ID", extra={"appointment_id": appointment_id})
 
     appt = await get_appointment_by_id(db=db, appointment_id=appointment_id)
@@ -280,7 +347,7 @@ async def get_appointment_by_id_service(
 
 
 async def get_all_appointments_service(
-    db: AsyncSession,
+    db,
     token: str,
     page: int,
     page_size: int,
@@ -291,6 +358,30 @@ async def get_all_appointments_service(
     scheduled_date_to=None,
     is_active=None,
 ) -> list[AppointmentResponse]:
+    """Retrieve a paginated, filtered list of appointments enriched with provider data.
+
+    On the first page, auto-completes any past appointments before querying.
+    Fetches the full provider list from the auth service and joins it onto
+    each appointment result.
+
+    Args:
+        db: Async SQLAlchemy session dependency.
+        token: Bearer JWT token used to fetch provider profiles.
+        page: 1-based page number.
+        page_size: Number of records per page.
+        status: Optional ``AppointmentStatus`` filter.
+        provider_id: Optional provider ID filter.
+        user_id: Optional patient user ID filter.
+        scheduled_date_from: Optional inclusive start date filter.
+        scheduled_date_to: Optional inclusive end date filter.
+        is_active: Optional active-flag filter.
+
+    Returns:
+        List of ``AppointmentResponse`` Pydantic models.
+
+    Raises:
+        Exception: Propagates any repository or auth-service error.
+    """
     logger.info(
         "Fetching appointments",
         extra={
@@ -306,6 +397,18 @@ async def get_all_appointments_service(
     )
 
     try:
+        if page == 1:
+            now = datetime.now(timezone.utc)
+            updated = await mark_completed_appointments_repo(db, now)
+            if updated:
+                logger.info(
+                    "Auto-completed appointments",
+                    extra={"updated_count": updated}
+                )
+    except RuntimeError as e:
+        logger.exception("Failed to auto-complete appointments", extra={"error": str(e)})
+
+    try:
         appointments = await get_appointments(
             db=db,
             page=page,
@@ -317,14 +420,14 @@ async def get_all_appointments_service(
             scheduled_date_to=scheduled_date_to,
             is_active=is_active,
         )
-    except Exception as e:
-        logger.error("Failed to fetch appointments from repository", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to fetch appointments from repository", extra={"error": str(e)})
         raise
 
     try:
         providers = await get_full_providers(token)
-    except Exception as e:
-        logger.error("Failed to fetch providers from auth client", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to fetch providers from auth client", extra={"error": str(e)})
         raise
 
     provider_map = {p["id"]: p for p in providers}
@@ -397,4 +500,5 @@ async def get_all_appointments_service(
         "Appointments fetched and mapped successfully",
         extra={"count": len(result), "page": page},
     )
+
     return result

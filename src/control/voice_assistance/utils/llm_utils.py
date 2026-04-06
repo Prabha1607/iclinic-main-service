@@ -1,122 +1,142 @@
-import asyncio
+"""LLM invocation utilities for the voice assistance nodes.
+
+Wraps the ainvoke calls for both the lightweight (Llama-1) and large LLM
+instances, providing JSON-parsing, fallback handling, and emergency detection
+helpers used throughout the graph nodes.
+"""
 import json
 import logging
-from typing import Callable, Any
-
 from src.control.voice_assistance.utils.common import clear_markdown
 from src.control.voice_assistance.models import ainvoke_llm, get_llama1
 
 logger = logging.getLogger(__name__)
 
 
-async def _retry_with_backoff(
-    func: Callable,
-    *args,
-    retries: int = 3,
-    base_delay: float = 0.5,
-    max_delay: float = 5.0,
-    exceptions: tuple = (Exception,),
-    **kwargs,
-) -> Any:
-    for attempt in range(retries):
-        try:
-            return await func(*args, **kwargs)
-        except exceptions as e:
-            if attempt == retries - 1:
-                raise
-
-            delay = min(base_delay * (2 ** attempt), max_delay)
-            logger.warning(
-                "Retrying after error",
-                extra={"attempt": attempt + 1, "delay": delay, "error": str(e)},
-            )
-            await asyncio.sleep(delay)
-
-
 async def invokeLLM_json(system_prompt: str, user_prompt: str) -> dict | None:
-    async def _call():
+    """Invoke the lightweight LLM and parse the JSON response.
+
+    Args:
+        system_prompt: System-role prompt string.
+        user_prompt: User-role prompt string.
+
+    Returns:
+        Parsed response dict, or ``None`` on parse failure or error.
+    """
+    raw = ""
+    try:
         llm = get_llama1()
         response = await llm.ainvoke([("system", system_prompt), ("human", user_prompt)])
-        return json.loads(clear_markdown(response.content.strip()))
-
-    try:
-        return await _retry_with_backoff(
-            _call,
-            retries=4,
-            exceptions=(json.JSONDecodeError, Exception),
-        )
+        raw = response.content.strip()
+        cleaned = clear_markdown(raw)
+        return json.loads(cleaned)
     except json.JSONDecodeError as e:
-        logger.warning("invokeLLM_json: failed to parse JSON response", extra={"error": str(e)})
-    except Exception as e:
-        logger.error("invokeLLM_json: unexpected error", extra={"error": str(e)})
+        logger.warning(f"invokeLLM_json: failed to parse JSON | error={e} | raw={raw[:300]!r}", exc_info=True)
+    except RuntimeError as e:
+        logger.exception(f"invokeLLM_json: unexpected error | error={e}")
     return None
 
 
 async def invokeLLM(system_prompt: str, user_prompt: str) -> str | None:
-    async def _call():
+    """Invoke the lightweight LLM and return the raw text response.
+
+    Args:
+        system_prompt: System-role prompt string.
+        user_prompt: User-role prompt string.
+
+    Returns:
+        Stripped response string, or ``None`` on error.
+    """
+    try:
         llm = get_llama1()
         response = await llm.ainvoke([("system", system_prompt), ("human", user_prompt)])
         return response.content.strip()
-
-    try:
-        return await _retry_with_backoff(_call, retries=4)
-    except Exception as e:
-        logger.error("invokeLLM: unexpected error", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception(f"invokeLLM: unexpected error | error={e}")
     return None
 
 
 async def invokeLargeLLM_json(messages) -> dict | None:
-    async def _call():
-        response = await ainvoke_llm(messages)
-        return json.loads(clear_markdown(response.content.strip()))
+    """Invoke the large LLM with a messages list and parse the JSON response.
 
+    Args:
+        messages: List of message dicts in LangChain format.
+
+    Returns:
+        Parsed response dict, or ``None`` on parse failure or error.
+    """
+    raw = ""
     try:
-        return await _retry_with_backoff(
-            _call,
-            retries=4,
-            exceptions=(json.JSONDecodeError, Exception),
-        )
+        response = await ainvoke_llm(messages)
+        raw = response.content.strip()
+        cleaned = clear_markdown(raw)
+        return json.loads(cleaned)
     except json.JSONDecodeError as e:
-        logger.warning("invokeLargeLLM_json: failed to parse JSON response", extra={"error": str(e)})
-    except Exception as e:
-        logger.error("invokeLargeLLM_json: unexpected error", extra={"error": str(e)})
+        logger.warning(f"invokeLargeLLM_json: failed to parse JSON | error={e} | raw={raw[:500]!r}", exc_info=True)
+    except RuntimeError as e:
+        logger.exception(f"invokeLargeLLM_json: unexpected error | error={e}")
     return None
 
 
 async def invokeLargeLLM(messages) -> str | None:
-    async def _call():
+    """Invoke the large LLM with a messages list and return the raw text response.
+
+    Args:
+        messages: List of message dicts in LangChain format.
+
+    Returns:
+        Stripped response string, or ``None`` on error.
+    """
+    try:
         response = await ainvoke_llm(messages)
         return response.content.strip()
-
-    try:
-        return await _retry_with_backoff(_call, retries=4)
-    except Exception as e:
-        logger.error("invokeLargeLLM: unexpected error", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception(f"invokeLargeLLM: unexpected error | error={e}")
     return None
 
 
 async def llm_extract(system: str, human: str) -> dict:
-    async def _call():
+    """Invoke the lightweight LLM and return a parsed JSON dict.
+
+    Similar to ``invokeLLM_json`` but returns an empty dict instead of
+    ``None`` on failure, making it safe to use without ``None`` guards.
+
+    Args:
+        system: System-role prompt string.
+        human: User-role prompt string.
+
+    Returns:
+        Parsed dict, or ``{}`` on failure.
+    """
+    raw = ""
+    try:
         llm = get_llama1()
         response = await llm.ainvoke([("system", system), ("human", human)])
-        return json.loads(clear_markdown(response.content.strip()))
-
-    try:
-        return await _retry_with_backoff(
-            _call,
-            retries=4,
-            exceptions=(json.JSONDecodeError, Exception),
-        )
+        raw = response.content.strip()
+        return json.loads(clear_markdown(raw))
     except json.JSONDecodeError as e:
-        logger.warning("llm_extract: failed to parse JSON response", extra={"error": str(e)})
-    except Exception as e:
-        logger.error("llm_extract: unexpected error", extra={"error": str(e)})
+        logger.warning(f"llm_extract: failed to parse JSON | error={e} | raw={raw[:300]!r}", exc_info=True)
+    except RuntimeError as e:
+        logger.exception(f"llm_extract: unexpected error | error={e}")
     return {}
 
 
 async def is_emergency(text: str, system_prompt: str) -> bool:
+    """Detect whether user text signals a medical emergency.
+
+    Invokes the LLM with a yes/no emergency-classification prompt.
+
+    Args:
+        text: Patient utterance to evaluate.
+        system_prompt: System prompt instructing the LLM to reply YES or NO.
+
+    Returns:
+        ``True`` if the LLM responds with ``"YES"`` (case-insensitive),
+        ``False`` otherwise or on error.
+    """
     try:
-        response = await invokeLLM(user_prompt=text,system_prompt=system_prompt)
-        return response.content.strip().upper() == "EMERGENCY"
-    except Exception as exc:
+        response = await invokeLLM(user_prompt=text, system_prompt=system_prompt)
+        return (response or "").strip().upper() == "YES"  
+    except RuntimeError:
+        logger.exception("is_emergency: unexpected error")
         return False
+ 

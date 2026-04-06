@@ -1,13 +1,39 @@
+"""
+Authorization middleware for the iClinic REST API.
+
+Enforces Bearer token authentication on all incoming requests,
+bypassing checks only for explicitly whitelisted public paths
+and OPTIONS preflight requests.
+"""
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 from src.config.jwt_handler import verify_access_token
+from fastapi import HTTPException
 
 
 class AuthorizationMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    """
+    Middleware that enforces Bearer token authentication on all non-public routes.
 
+    Intercepts every incoming request, checks for a valid Authorization header,
+    and validates the JWT access token. Requests to public paths and OPTIONS
+    preflight requests are forwarded without authentication checks.
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        """
+        Validate the Bearer token on each request before passing it downstream.
+
+        Args:
+            request:   The incoming HTTP request.
+            call_next: Callable that forwards the request to the next handler.
+
+        Returns:
+            Response: The downstream response on success, or a JSONResponse
+            with 400/401 status when authorization is missing or invalid.
+        """
         public_paths = [
             "/",
             "/api/v1/voice/voice-response",
@@ -40,7 +66,7 @@ class AuthorizationMiddleware(BaseHTTPMiddleware):
 
         try:
             access_payload = await verify_access_token(token)
-        except Exception:
+        except HTTPException:
             access_payload = None
 
         if access_payload is None:

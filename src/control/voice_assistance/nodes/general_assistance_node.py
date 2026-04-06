@@ -1,3 +1,9 @@
+"""General assistance node for the voice assistance graph.
+
+Handles off-topic or general user questions that arise during the
+appointment booking or cancellation flow, then guides the patient back
+to the main conversation objective.
+"""
 import logging
 from src.control.voice_assistance.prompts.general_assistance_node_prompt import (
     build_general_assistance_prompt,
@@ -29,13 +35,24 @@ async def general_assistance_node(state: dict) -> dict:
             - active_node: Set to "general_assistance".
             - speech_error: Present if the LLM invocation failed.
     """
-    user_prompt = build_general_assistance_prompt(state)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    response = await invokeLargeLLM(messages=messages)
+    try:
+        user_prompt = build_general_assistance_prompt(state)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        response = await invokeLargeLLM(messages=messages)
+    except RuntimeError as e:
+        logger.exception(
+            "general_assistance_node: LLM invocation failed",
+            extra={"error": str(e)},
+        )
+        return {
+            **state,
+            "speech_ai_text": FALLBACK_RESPONSE,
+            "active_node": "general_assistance",
+            "speech_error": str(e),
+        }
 
     if not response:
         logger.warning("general_assistance_node: LLM returned no response, using fallback")
@@ -43,7 +60,6 @@ async def general_assistance_node(state: dict) -> dict:
             **state,
             "speech_ai_text": FALLBACK_RESPONSE,
             "active_node": "general_assistance",
-            "speech_error": "LLM invocation returned no response",
         }
 
     logger.info("general_assistance_node: response generated successfully")
@@ -51,6 +67,7 @@ async def general_assistance_node(state: dict) -> dict:
         **state,
         "speech_ai_text": response.strip(),
         "active_node": "general_assistance",
-    }
+    }    
+    
 
 

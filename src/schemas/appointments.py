@@ -1,7 +1,5 @@
 from datetime import date, datetime, time
-
 from pydantic import BaseModel, Field, field_validator
-
 from src.data.models.postgres.ENUM import AppointmentStatus, BookingChannel
 
 class AppointmentCreate(BaseModel):
@@ -124,3 +122,8 @@ class AppointmentResponse(BaseModel):
     appointment_type: AppointmentTypeResponse | None = None
 
     model_config = {"from_attributes": True}
+
+
+class MessageResponse(BaseModel):
+    message: str
+

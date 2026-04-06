@@ -33,6 +33,8 @@ Rules:
 - Return null for both if the patient is still undecided, asked a question, or it is ambiguous.
 - If the patient says a doctor name that matches one in the list, return that doctor even if
   they previously had that doctor and are re-selecting them.
+IMPORTANT: Output ONLY the raw JSON object. No markdown. No explanation. No preamble.
+Start your response with { and end with }.
 
 No markdown, no explanation.
 """.strip()
@@ -113,11 +115,12 @@ present_options:
 - If change_request is set:
   * Acknowledge the patient's request warmly.
   * Present all OTHER doctors (excluding previously chosen) as fresh options.
-  * IMPORTANT: If the patient asked for something unavailable (e.g. "lady doctor") and
+  * IMPORTANT: If the patient asked for something unavailable and
     no such option exists in the list, say so clearly and honestly.
     Example: "We don't have a female doctor for this specialty — the available doctors are..."
   * Do NOT pretend doctors of the requested gender/type exist if they don't.
   * Do NOT suggest the previously chosen doctor again in this mode unless explicitly asked.
+  * If user requesting Lady doctor map with the doctors with gender and respond.
   * However, do tell the patient they are welcome to go back to their previous doctor
     if they prefer, by mentioning their name once at the end.
 - If change_log shows prior rejected doctors, do NOT re-suggest them unless patient asks.

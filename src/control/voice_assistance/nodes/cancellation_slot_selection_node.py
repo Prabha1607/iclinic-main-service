@@ -1,8 +1,16 @@
+"""
+LangGraph node for guiding cancellation slot selection in the iClinic voice assistance module.
+
+Manages a multi-stage conversational flow (initial fetch → ask_date → ask_slot → ask_confirm)
+to identify which upcoming appointment the patient wants to cancel, using LLM calls for
+natural language resolution and direct DB queries for live appointment data.
+"""
 import logging
 from datetime import UTC, datetime
 from datetime import date as date_type
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.control.voice_assistance.utils.llm_utils import invokeLLM
 from src.control.voice_assistance.prompts.cancel_appointment_node_prompt import (
@@ -126,9 +134,11 @@ async def _handle_initial(state: dict, user_id: int) -> dict:
     
     try:
         rows = await _fetch_upcoming_appointments(user_id)
-    except Exception:
+    except SQLAlchemyError as e:
         logger.exception(
-            "Database fetch failed for upcoming appointments for user_id=%s.", user_id
+            "Database fetch failed for upcoming appointments for user_id=%s.",
+            user_id,
+            extra={"error": str(e)},
         )
         history = _history_append(state, "assistant", DB_ERROR_RESPONSE)
         return update_state(
@@ -230,9 +240,11 @@ async def _handle_ask_date(state: dict, user_text: str) -> dict:
             system_prompt=SELECT_DATE_PROMPT.format(dates_list=dates_list, user_text=user_text),
             user_prompt=user_text,
         )
-    except Exception:
+    except RuntimeError as e:
         logger.exception(
-            "LLM date resolution failed in ask_date stage for user_text=%r.", user_text
+            "LLM date resolution failed in ask_date stage for user_text=%r.",
+            user_text,
+            extra={"error": str(e)},
         )
         history = _history_append({"cancellation_slot_selection_history": history}, "assistant", ERROR_RESPONSE)
         return update_state(
@@ -347,9 +359,11 @@ async def _handle_ask_slot(state: dict, user_text: str) -> dict:
             ),
             user_prompt=user_text,
         )
-    except Exception:
+    except RuntimeError as e:
         logger.exception(
-            "LLM slot resolution failed in ask_slot stage for user_text=%r.", user_text
+            "LLM slot resolution failed in ask_slot stage for user_text=%r.",
+            user_text,
+            extra={"error": str(e)},
         )
         history = _history_append({"cancellation_slot_selection_history": history}, "assistant", ERROR_RESPONSE)
         return update_state(

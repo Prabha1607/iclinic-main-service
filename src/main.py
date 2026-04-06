@@ -1,3 +1,9 @@
+"""
+Entry point for the iClinic REST API service.
+
+Reads the PORT environment variable and starts the Uvicorn ASGI server
+serving the FastAPI application defined in src.api.rest.app.
+"""
 import os
 import uvicorn
 

@@ -1,10 +1,15 @@
+"""
+REST route handlers for appointment booking in the iClinic main service.
+
+Exposes endpoints to create, update, cancel, and list appointments,
+including authorization header validation and email notification dispatch.
+"""
 import logging
 from datetime import date
-
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.exc import SQLAlchemyError
 from src.api.rest.dependencies import get_current_user, get_db
 from src.core.services.appointments import (
     build_booking_email_body,
@@ -18,11 +23,12 @@ from src.core.services.appointments import (
     update_appointment,
 )
 from src.data.clients.auth_client import fetch_user_by_id
-from src.data.models.postgres.ENUM import AppointmentStatus
 from src.schemas.appointments import (
+    MessageResponse,
     AppointmentCreate,
     AppointmentResponse,
     AppointmentUpdate,
+    AppointmentStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,13 +36,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/booking", tags=["Booking"])
 
 
-@router.post("/create", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post("/create", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 async def create_appointment(
     request: Request,
     appointment: AppointmentCreate,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
-):
+) -> MessageResponse:
     """
     Create a new appointment and dispatch a booking confirmation email.
 
@@ -53,14 +59,14 @@ async def create_appointment(
         current_user: Authenticated user payload injected by ``get_current_user``.
 
     Returns:
-        dict: ``{"message": "Appointment created successfully"}`` on success.
+        MessageResponse: ``{"message": "Appointment created successfully"}`` on success.
 
     Raises:
-        HTTPException 400: When the Authorization header is absent.
+        HTTPException 400: When the Authorization header is absent or the slot
+                           is already booked.
         HTTPException 401: When the Authorization header is malformed or the
                            scheme is not Bearer.
-        HTTPException 404: When the patient or provider cannot be resolved via
-                           the auth service.
+        HTTPException 404: When the patient, provider, or slot cannot be resolved.
         HTTPException 500: When an unexpected error occurs during appointment
                            creation or database persistence.
     """
@@ -88,8 +94,8 @@ async def create_appointment(
     try:
         user = await fetch_user_by_id(token=token, user_id=appointment.user_id)
         provider = await fetch_user_by_id(token=token, user_id=appointment.provider_id)
-    except Exception as e:
-        logger.error("Failed to resolve user or provider", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to resolve user or provider", extra={"error": str(e)})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create appointment",
@@ -117,8 +123,14 @@ async def create_appointment(
             "Appointment persisted successfully",
             extra={"user_id": appointment.user_id, "provider_id": appointment.provider_id},
         )
-    except Exception as e:
-        logger.error("Failed to persist appointment", extra={"error": str(e)})
+    except LookupError as e:
+        logger.warning("Slot not found during appointment creation", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        logger.warning("Slot already booked during appointment creation", extra={"error": str(e)})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except SQLAlchemyError as e:
+        logger.exception("Failed to persist appointment", extra={"error": str(e)})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create appointment",
@@ -127,21 +139,21 @@ async def create_appointment(
     try:
         await send_booking_confirmation_email(user["email"], body=email_body)
         logger.info("Booking confirmation email sent", extra={"email": user["email"]})
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Booking confirmation email failed — appointment still created",
             extra={"email": user["email"], "error": str(e)},
         )
 
-    return {"message": "Appointment created successfully"}
+    return MessageResponse(message="Appointment created successfully")
 
 
-@router.put("/update/{appointment_id}", response_model=dict)
+@router.put("/update/{appointment_id}", response_model=MessageResponse)
 async def update_existing_appointment(
     appointment_id: int,
     appointment_update: AppointmentUpdate,
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     """
     Update an existing appointment by its ID.
 
@@ -155,11 +167,10 @@ async def update_existing_appointment(
         db:                 Async database session injected by ``get_db``.
 
     Returns:
-        dict: ``{"message": "Appointment updated successfully"}`` on success.
+        MessageResponse: ``{"message": "Appointment updated successfully"}`` on success.
 
     Raises:
-        HTTPException 404: When no appointment with the given ID exists
-                           (raised by the service layer).
+        HTTPException 404: When no appointment with the given ID exists.
         HTTPException 500: When an unexpected error occurs during the update.
     """
     logger.info("Update appointment requested", extra={"appointment_id": appointment_id})
@@ -170,11 +181,12 @@ async def update_existing_appointment(
             update_data=appointment_update,
         )
         logger.info("Appointment updated successfully", extra={"appointment_id": appointment_id})
-        return {"message": "Appointment updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
+        return MessageResponse(message="Appointment updated successfully")
+    except LookupError as e:
+        logger.warning("Appointment not found for update", extra={"appointment_id": appointment_id})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except RuntimeError as e:
+        logger.exception(
             "Failed to update appointment",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
@@ -184,13 +196,13 @@ async def update_existing_appointment(
         )
 
 
-@router.patch("/cancel/{appointment_id}", response_model=dict)
+@router.patch("/cancel/{appointment_id}", response_model=MessageResponse)
 async def cancel_existing_appointment(
     request: Request,
     appointment_id: int,
     cancellation_reason: str = Body(...),
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     """
     Cancel an appointment and dispatch a cancellation notification email.
 
@@ -207,7 +219,7 @@ async def cancel_existing_appointment(
         db:                  Async database session injected by ``get_db``.
 
     Returns:
-        dict: ``{"message": "Appointment cancelled successfully"}`` on success.
+        MessageResponse: ``{"message": "Appointment cancelled successfully"}`` on success.
 
     Raises:
         HTTPException 400: When the Authorization header is absent.
@@ -223,8 +235,8 @@ async def cancel_existing_appointment(
 
     try:
         appointment = await get_appointment_by_id_service(db=db, appointment_id=appointment_id)
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to fetch appointment for cancellation",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
@@ -255,8 +267,8 @@ async def cancel_existing_appointment(
 
     try:
         user = await fetch_user_by_id(token=token, user_id=appointment["user_id"])
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to resolve user for cancellation email",
             extra={"user_id": appointment["user_id"], "error": str(e)},
         )
@@ -285,8 +297,11 @@ async def cancel_existing_appointment(
             db=db,
         )
         logger.info("Appointment cancelled successfully", extra={"appointment_id": appointment_id})
-    except Exception as e:
-        logger.error(
+    except LookupError as e:
+        logger.warning("Appointment not found for cancellation", extra={"appointment_id": appointment_id})
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to persist appointment cancellation",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
@@ -298,13 +313,13 @@ async def cancel_existing_appointment(
     try:
         await send_cancel_cancellation_email(user["email"], body=email_body)
         logger.info("Cancellation email sent", extra={"email": user["email"]})
-    except Exception as e:
-        logger.error(
+    except RuntimeError as e:
+        logger.exception(
             "Cancellation email failed — appointment still cancelled",
             extra={"email": user["email"], "error": str(e)},
         )
 
-    return {"message": "Appointment cancelled successfully"}
+    return MessageResponse(message="Appointment cancelled successfully")
 
 
 @router.get("/list", response_model=list[AppointmentResponse])
@@ -319,7 +334,7 @@ async def get_all_appointments(
     scheduled_date_to: date | None = None,
     is_active: bool | None = None,
     db: AsyncSession = Depends(get_db),
-):
+) -> list[AppointmentResponse]:
     """
     Retrieve a paginated, filtered list of appointments.
 
@@ -385,8 +400,8 @@ async def get_all_appointments(
             extra={"count": len(appointments), "page": page},
         )
         return appointments
-    except Exception as e:
-        logger.error("Failed to fetch appointments", extra={"error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to fetch appointments", extra={"error": str(e)})
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch appointments",

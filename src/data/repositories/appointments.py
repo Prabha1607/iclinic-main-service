@@ -1,19 +1,15 @@
 import logging
-from datetime import date
-
-from sqlalchemy import select
+from datetime import date, datetime, timezone
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
 from src.data.models.postgres.appointment import Appointment
 from src.data.models.postgres.available_slot import AvailableSlot
-from src.data.models.postgres.ENUM import AppointmentStatus
+from src.data.models.postgres.ENUM import AppointmentStatus, SlotStatus
+
+from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
-
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.data.models.postgres.ENUM import SlotStatus
 
 
 async def create_appointment_repo(
@@ -21,11 +17,8 @@ async def create_appointment_repo(
     appointment_data,
 ) -> Appointment:
     appointment = Appointment(**appointment_data.model_dump())
-
     db.add(appointment)
-
     await db.flush()
-
     return appointment
 
 
@@ -47,6 +40,7 @@ async def mark_slot_booked(
     slot: AvailableSlot,
 ) -> None:
     slot.status = SlotStatus.BOOKED
+
 
 async def get_appointment_by_id(
     db: AsyncSession,
@@ -76,8 +70,8 @@ async def get_appointment_by_id(
             )
 
         return appointment
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch appointment by ID",
             extra={"appointment_id": appointment_id, "error": str(e)},
         )
@@ -142,14 +136,10 @@ async def get_appointments(
             extra={"count": len(appointments), "page": page},
         )
         return appointments
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch appointments",
-            extra={
-                "page": page,
-                "page_size": page_size,
-                "error": str(e),
-            },
+            extra={"page": page, "page_size": page_size, "error": str(e)},
         )
         raise
 
@@ -172,11 +162,45 @@ async def get_instance_by_id(db: AsyncSession, id: int) -> Appointment | None:
             )
 
         return appointment
-    except Exception as e:
-        logger.error(
+    except SQLAlchemyError as e:
+        logger.exception(
             "Failed to fetch appointment instance by ID",
             extra={"appointment_id": id, "error": str(e)},
         )
         raise
 
-    
+
+async def mark_completed_appointments_repo(
+    db: AsyncSession,
+    now: datetime = None,
+) -> int:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    now_naive = now.replace(tzinfo=None)
+    now_date = now_naive.date()
+    now_time = now_naive.time()
+
+    stmt = (
+        update(Appointment)
+        .where(
+            and_(
+                Appointment.status == AppointmentStatus.SCHEDULED,
+                Appointment.is_active == True,
+                or_(
+                    Appointment.scheduled_date < now_date,
+                    and_(
+                        Appointment.scheduled_date == now_date,
+                        Appointment.scheduled_end_time < now_time,
+                    ),
+                ),
+            )
+        )
+        .values(status=AppointmentStatus.COMPLETED)
+        .execution_options(synchronize_session=False)
+    )
+
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return result.rowcount or 0 

@@ -1,7 +1,12 @@
+"""
+LangGraph node for sending cancellation confirmation emails in the iClinic voice assistance module.
+
+After a successful appointment cancellation, builds and dispatches a plain-text
+notification email to the patient. Email failures are logged and swallowed
+so the pipeline continues uninterrupted.
+"""
 import logging
-
 from fastapi_mail import FastMail, MessageSchema
-
 from src.control.voice_assistance.config import conf
 
 logger = logging.getLogger(__name__)
@@ -83,10 +88,12 @@ async def cancel_confirmation_node(state: dict) -> dict:
 
     try:
         await _send_cancellation_email(email, _build_cancellation_email_body(state))
-    except Exception:
+    except RuntimeError as e:
         logger.exception(
             "Failed to send cancellation email to %s.",
             email,
+            extra={"error": str(e)},
         )
 
     return state
+

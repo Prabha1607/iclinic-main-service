@@ -1,54 +1,80 @@
-from collections.abc import AsyncGenerator
+"""
+LLM client utilities for the iClinic voice assistance module.
+
+Provides round-robin Groq API key rotation and async invocation helpers
+for the LLaMA models used across voice assistance graph nodes.
+"""
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
+
 from src.config.settings import settings
 
 load_dotenv()
 
 API_KEYS = settings.groq_keys_list
 
-current_key_index = 0
+_llama1_index = 0
+_llama3_index = 0
 
 
-def get_llama3(api_key: str):
-    return ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0.2,
-        max_tokens=100,
-        api_key=api_key,
-    )
+def get_llama1() -> ChatGroq:
+    """
+    Instantiate a LLaMA 3.1 8B ChatGroq client using round-robin key rotation.
 
+    Cycles through the configured Groq API keys on each call to distribute
+    request load across available keys.
 
-def get_llama1():
+    Returns:
+        ChatGroq: A configured ChatGroq instance for the ``llama-3.1-8b-instant`` model.
+    """
+    global _llama1_index
+    key = API_KEYS[_llama1_index % len(API_KEYS)]
+    _llama1_index = (_llama1_index + 1) % len(API_KEYS)
     return ChatGroq(
         model="llama-3.1-8b-instant",
         temperature=0.2,
-        max_tokens=100,
-        api_key=API_KEYS[0],
+        max_tokens=1000,
+        api_key=key,
     )
 
 
-async def ainvoke_llm(messages):
+def _next_llama3_key() -> str:
+    global _llama3_index
+    key = API_KEYS[_llama3_index % len(API_KEYS)]
+    _llama3_index = (_llama3_index + 1) % len(API_KEYS)
+    return key
 
-    global current_key_index
 
+async def ainvoke_llm(messages: list) -> object:
+    """
+    Invoke the LLaMA 3.3 70B model asynchronously with automatic key failover.
+
+    Attempts the invocation using each available Groq API key in round-robin
+    order. Moves to the next key on failure and raises if all keys are exhausted.
+
+    Args:
+        messages: List of LangChain message objects to pass to the model.
+
+    Returns:
+        object: The LangChain AI message response from the model.
+
+    Raises:
+        RuntimeError: When all configured Groq API keys have failed.
+    """
     attempts = 0
     last_error = None
 
-    start_index = current_key_index  
-
     while attempts < len(API_KEYS):
-        api_key = API_KEYS[current_key_index]
-
+        api_key = _next_llama3_key()
         try:
-            response = await get_llama3(api_key).ainvoke(messages)
-
-            return response
-
-        except Exception as e:
+            return await ChatGroq(
+                model="llama-3.3-70b-versatile",
+                temperature=0.2,
+                max_tokens=1000,
+                api_key=api_key,
+            ).ainvoke(messages)
+        except RuntimeError as e:
             last_error = e
-
-            current_key_index = (current_key_index + 1) % len(API_KEYS)
             attempts += 1
 
     raise RuntimeError(f"All Groq API keys failed: {last_error}")

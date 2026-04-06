@@ -1,14 +1,28 @@
+"""
+Application settings for the iClinic main service.
+
+Loads and validates all environment variables required by the service
+using pydantic-settings, sourcing values from the ``.env`` file.
+"""
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """
+    Centralised configuration for the iClinic main service.
+
+    All fields are populated from environment variables or the ``.env`` file.
+    Covers database, authentication, third-party integrations (Twilio, Groq,
+    Deepgram), email, voice assistance, and inter-service communication.
+    """
+
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
     POSTGRES_HOST: str
     POSTGRES_PORT: str
-    DATABASE_URL : str
-    
+    DATABASE_URL: str
+
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     REFRESH_TOKEN_EXPIRE_DAYS: int
     ALGORITHM: str
@@ -44,13 +58,21 @@ class Settings(BaseSettings):
     EMERGENCY_FORWARD_NUMBER: str
     TWILIO_VERIFY_SERVICE_SID: str
 
-    AUTH_SERVICE_URL: str 
+    AUTH_SERVICE_URL: str
 
     @property
     def groq_keys_list(self) -> list[str]:
+        """
+        Parse the comma-separated ``GROQ_API_KEYS`` string into a list.
+
+        Returns:
+            list[str]: Individual Groq API key strings with whitespace stripped.
+        """
         return [k.strip() for k in self.GROQ_API_KEYS.split(",")]
 
     class Config:
+        """Pydantic configuration — specifies the ``.env`` file as the settings source."""
+
         env_file = ".env"
 
 

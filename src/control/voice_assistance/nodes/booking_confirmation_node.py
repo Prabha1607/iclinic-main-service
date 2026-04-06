@@ -1,3 +1,10 @@
+"""
+LangGraph node for sending booking confirmation emails in the iClinic voice assistance module.
+
+After a successful appointment booking, builds and dispatches a plain-text
+confirmation email to the patient. Email failures are logged and swallowed
+so the pipeline continues uninterrupted.
+"""
 import logging
 
 from fastapi_mail import FastMail, MessageSchema
@@ -87,11 +94,12 @@ async def booking_confirmation_node(state: dict) -> dict:
 
     try:
         await _send_confirmation_email(to_email, _build_email_body(state))
-    except Exception:
+    except RuntimeError as e:
         logger.exception(
             "Failed to send confirmation email to %s for slot_booked_id=%s.",
             to_email,
             state.get("slot_booked_id"),
+            extra={"error": str(e)},
         )
 
     return state

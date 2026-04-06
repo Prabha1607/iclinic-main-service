@@ -1,15 +1,21 @@
+"""
+REST route handlers for voice assistance in the iClinic main service.
+
+Exposes endpoints to initiate outbound calls and handle inbound Twilio
+voice webhooks, delegating conversation logic to the call and response graphs.
+"""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from twilio.twiml.voice_response import VoiceResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.api.rest.dependencies import get_current_user, get_db
 from src.config.settings import settings
 from src.control.voice_assistance.graph import build_call_graph, build_response_graph
 from src.control.voice_assistance.session_store import (
     delete_session,
-    ensure_table,
     get_session,
     set_session,
 )
@@ -30,13 +36,6 @@ RETRY_TEXT = "Sorry, I did not catch that. Please go ahead and speak."
 TIMEOUT_TEXT = "I still could not hear you. Thank you for calling. Goodbye."
 
 _startup_done = False
-
-
-async def _ensure_startup() -> None:
-    global _startup_done
-    if not _startup_done:
-        await ensure_table()
-        _startup_done = True
 
 
 def _build_appointment_types(appointment_types: list) -> dict:
@@ -87,7 +86,7 @@ async def make_call(
     to_number: str = Query(...),
     current_user=Depends(get_current_user),
     db=Depends(get_db),
-):
+) -> dict:
     """
     Initiate an outbound voice call to the specified number.
 
@@ -110,8 +109,6 @@ async def make_call(
         HTTPException 400: When the Authorization header is missing.
         HTTPException 500: When appointment-type retrieval fails unexpectedly.
     """
-    await _ensure_startup()
-
     try:
         appointment_types = await get_appointment_types(db)
         if not appointment_types:
@@ -119,8 +116,8 @@ async def make_call(
             raise HTTPException(status_code=404, detail="appointment_types not found")
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error("Failed to fetch appointment types", extra={"error": str(e)})
+    except SQLAlchemyError as e:
+        logger.exception("Failed to fetch appointment types", extra={"error": str(e)})
         raise HTTPException(status_code=500, detail="Internal error")
 
     credential = request.headers.get("Authorization")
@@ -145,8 +142,8 @@ async def make_call(
 
     try:
         result = await call_graph.ainvoke(initial_state)
-    except Exception as e:
-        logger.error("Call graph invocation failed", extra={"to_number": to_number, "error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Response graph invocation failed", extra={"error": str(e)})
         return {"status": "error", "detail": "Failed to place call"}
 
     if result.get("speech_error"):
@@ -160,8 +157,8 @@ async def make_call(
 
     try:
         await set_session(call_sid, {**result, "call_to_number": to_number, "call_sid": call_sid})
-    except Exception as e:
-        logger.error("Failed to persist call session", extra={"call_sid": call_sid, "error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to persist call session", extra={"call_sid": call_sid, "error": str(e)})
         return {"status": "error", "detail": "Failed to initialize session"}
 
     logger.info("Outbound call placed successfully", extra={"call_sid": call_sid, "to_number": to_number})
@@ -169,7 +166,7 @@ async def make_call(
 
 
 @router.post("/voice-response")
-async def voice_response(request: Request):
+async def voice_response(request: Request) -> Response:
     """
     Handle an inbound Twilio voice webhook for an in-progress call.
 
@@ -187,14 +184,12 @@ async def voice_response(request: Request):
         Response: An ``application/xml`` TwiML response that either gathers
                   further speech, dials an emergency number, or hangs up.
     """
-    await _ensure_startup()
-
     try:
         form = await request.form()
         call_sid = form.get("CallSid", "unknown")
         speech = form.get("SpeechResult")
-    except Exception as e:
-        logger.error("Failed to parse Twilio form payload", extra={"error": str(e)})
+    except ValueError as e:
+        logger.exception("Failed to parse Twilio form payload", extra={"error": str(e)})
         return Response(
             content=_build_twiml(FALLBACK_TEXT, False, True),
             media_type="application/xml",
@@ -207,8 +202,8 @@ async def voice_response(request: Request):
             call_to_number=form.get("To"), call_sid=call_sid
         )
         state["speech_user_text"] = speech.strip() if speech else None
-    except Exception as e:
-        logger.error("Failed to load call session", extra={"call_sid": call_sid, "error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Failed to load call session", extra={"call_sid": call_sid, "error": str(e)})
         return Response(
             content=_build_twiml(FALLBACK_TEXT, False, True),
             media_type="application/xml",
@@ -216,8 +211,8 @@ async def voice_response(request: Request):
 
     try:
         result = await response_graph.ainvoke(state)
-    except Exception as e:
-        logger.error("Response graph invocation failed", extra={"call_sid": call_sid, "error": str(e)})
+    except RuntimeError as e:
+        logger.exception("Response graph invocation failed", extra={"call_sid": call_sid, "error": str(e)})
         result = {**state, "speech_ai_text": FALLBACK_TEXT}
 
     ai_text = result.get("speech_ai_text") or NO_SPEECH_TEXT
@@ -235,8 +230,8 @@ async def voice_response(request: Request):
             await delete_session(call_sid)
         else:
             await set_session(call_sid, result)
-    except Exception as e:
-        logger.warning(
+    except RuntimeError as e:
+        logger.exception(
             "Failed to update session state after response",
             extra={"call_sid": call_sid, "error": str(e)},
         )

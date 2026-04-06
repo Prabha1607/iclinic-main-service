@@ -1,3 +1,8 @@
+"""Identity confirmation node for the voice assistance graph.
+
+Verifies or corrects a patient's identity (name and phone number) through
+a conversational LLM interaction before proceeding with the booking flow.
+"""
 import logging
 from typing import Any
 from src.control.voice_assistance.prompts.confirmation_node_prompt import (
@@ -14,6 +19,19 @@ def apply_corrections(
     corrected_name: str | None,
     corrected_phone: str | None,
 ) -> dict[str, Any]:
+    """Apply name and phone corrections to the graph state.
+
+    Updates ``identity_user_name`` and ``identity_user_phone`` in the state
+    when the patient provides corrections to their identity details.
+
+    Args:
+        state: Mutable graph state dict.
+        corrected_name: Corrected patient name, or None if unchanged.
+        corrected_phone: Corrected phone number, or None if unchanged.
+
+    Returns:
+        The updated state dict with corrections applied.
+    """
     if corrected_name:
         state["identity_user_name"] = corrected_name
     if corrected_phone:

@@ -1,6 +1,21 @@
+"""State helper utilities for the voice assistance LangGraph.
+
+Provides factory and mutation helpers for building, updating, and partially
+resetting the ``VoiceState`` dict as the graph transitions between nodes.
+"""
 from typing import Any
+from src.control.voice_assistance.state import VoiceState
 
 def update_state(state: dict, **kwargs: Any) -> dict:
+    """Return a new state dict with the given key-value pairs applied.
+
+    Args:
+        state: Current graph state.
+        **kwargs: Fields to override.
+
+    Returns:
+        New state dict with overrides merged.
+    """
     return {**state, **kwargs}
 
 
@@ -14,6 +29,21 @@ def fresh_state(
     identity_patient_id=None,
     appointment_types=None,
 ) -> dict:
+    """Build a blank initial state dict for a new voice call session.
+
+    Args:
+        call_to_number: Destination phone number for the call.
+        token: Bearer JWT token for downstream API calls.
+        call_sid: Unique Twilio call SID.
+        identity_user_name: Pre-populated patient name (from token claims).
+        identity_user_email: Pre-populated patient email.
+        identity_user_phone: Pre-populated patient phone number.
+        identity_patient_id: Pre-populated patient ID.
+        appointment_types: Pre-fetched appointment type dict.
+
+    Returns:
+        Fully initialised ``VoiceState``-compatible dict.
+    """
     return {
         "call_to_number": call_to_number,
         "call_sid": call_sid,
@@ -73,9 +103,22 @@ def fresh_state(
 
 
 def reset_from_doctor(state: dict, user_text: str) -> dict:
+    """Reset booking progress to the doctor selection step.
+
+    Clears all downstream slot and booking state while preserving earlier
+    identity and appointment-type progress.
+
+    Args:
+        state: Current graph state.
+        user_text: Patient utterance that triggered the change request.
+
+    Returns:
+        Updated state with doctor selection and subsequent fields reset.
+    """
     return {
         **state,
         "user_change_request":              user_text,
+        "active_node": "doctor_selection",
         "doctor_selection_pending":         False,
         "doctor_selection_completed":       False,
         "slot_stage":                       None,
@@ -86,6 +129,7 @@ def reset_from_doctor(state: dict, user_text: str) -> dict:
         "slot_selected":                    None,
         "slot_selected_start_time":         None,
         "slot_selected_end_time":           None,
+        "slot_time_hint":                   None,
         "slot_selected_display":            None,
         "slot_booked_id":                   None,
         "slot_booked_display":              None,
@@ -104,15 +148,28 @@ def reset_from_doctor(state: dict, user_text: str) -> dict:
 
 
 def reset_from_date(state: dict, user_text: str) -> dict:
+    """Reset booking progress to the date-selection step.
+
+    Preserves doctor selection and clears only slot and booking state.
+
+    Args:
+        state: Current graph state.
+        user_text: Patient utterance that triggered the change request.
+
+    Returns:
+        Updated state with slot-related fields reset.
+    """
     return {
         **state,
         "user_change_request":              user_text,
-        "slot_stage":                       None,
+        "slot_stage":                       "ask_date",
+        "active_node": "booking_slot_selection",
         "booking_slot_selection_completed": False,
         "slot_chosen_date":                 None,
         "slot_chosen_period":               None,
         "slot_available_list":              None,
         "slot_selected":                    None,
+        "slot_time_hint":                   None,
         "slot_selected_start_time":         None,
         "slot_selected_end_time":           None,
         "slot_selected_display":            None,
@@ -133,9 +190,22 @@ def reset_from_date(state: dict, user_text: str) -> dict:
 
 
 def reset_from_slot(state: dict, user_text: str) -> dict:
+    """Reset booking progress to the slot-selection step.
+
+    Preserves the already-chosen date while clearing slot, pre-confirmation,
+    and booking fields.
+
+    Args:
+        state: Current graph state.
+        user_text: Patient utterance that triggered the change request.
+
+    Returns:
+        Updated state with time-slot and downstream fields reset.
+    """
     return {
         **state,
         "user_change_request":              user_text,
+        "active_node": "booking_slot_selection",
         "slot_stage":                       "ask_slot",
         "booking_slot_selection_completed": False,
         "slot_chosen_period":               None,
@@ -145,6 +215,7 @@ def reset_from_slot(state: dict, user_text: str) -> dict:
         "slot_selected_end_time":           None,
         "slot_selected_display":            None,
         "slot_booked_id":                   None,
+        "slot_time_hint":                   None,
         "slot_booked_display":              None,
         "pre_confirmation_completed":       False,
         "booking_appointment_completed":    False,
@@ -161,6 +232,11 @@ def reset_from_slot(state: dict, user_text: str) -> dict:
 
 
 def reset_slot_state() -> dict:
+    """Return a partial state dict that clears all slot-selection fields.
+
+    Returns:
+        Dict containing slot-related keys set to their default empty values.
+    """
     return {
         "slot_stage":                       None,
         "slot_chosen_date":                 None,
@@ -176,6 +252,17 @@ def reset_slot_state() -> dict:
 
 
 def resolve_slot_state(state: dict, matched_slot: dict, ai_text: str,slot_chosen_period : str) -> dict:
+    """Build a state update that marks a slot as selected and ready to book.
+
+    Args:
+        state: Current graph state.
+        matched_slot: Slot dict returned from the availability query.
+        ai_text: AI response text to speak to the patient.
+        slot_chosen_period: Time-of-day period string (e.g. ``'morning'``).
+
+    Returns:
+        Updated state with slot fields populated and completion flag set.
+    """
     return update_state(
         state,
         active_node="booking_slot_selection",
@@ -204,6 +291,26 @@ def confirm_doctor_return(
     ai_text: str,
     reset_slots: bool = False,
 ) -> dict:
+    """Build and return the state update that confirms a doctor selection.
+
+    Optionally resets slot-selection state when the patient switches doctors
+    after already choosing a slot.
+
+    Args:
+        state: Current graph state.
+        doctor_id: ID of the confirmed doctor.
+        doctor_name: Display name of the confirmed doctor.
+        confirmed_doctor: Full doctor dict for the selected provider.
+        history: Updated conversation history list.
+        conversation_summary: Rolling summary of the conversation.
+        doctor_change_log: Log of doctor change events this session.
+        updated_cache: Refreshed doctors cache dict.
+        ai_text: AI response text to speak to the patient.
+        reset_slots: If ``True``, clear slot-related state fields.
+
+    Returns:
+        Updated state with doctor confirmation fields and optional slot reset.
+    """
 
     result = {
         **state,
@@ -222,3 +329,13 @@ def confirm_doctor_return(
     if reset_slots:
         result.update(reset_slot_state())
     return result
+
+def update_global_history(state: VoiceState, role: str, message: str, node: str):
+    if state.get("global_conversation_history") is None:
+        state["global_conversation_history"] = []
+
+    state["global_conversation_history"].append({
+        "role": role,
+        "message": message,
+        "node": node
+    })
